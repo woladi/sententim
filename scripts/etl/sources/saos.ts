@@ -1,13 +1,14 @@
 /**
  * SAOS — System Analizy Orzeczeń Sądowych (ICM UW / CeON)
  *
- * Public REST API.  No auth, JSON.  Bulk dump preferred.
- * Pertinent docs: https://www.saos.org.pl/help/index.php/dokumentacja-api
+ * Public REST API.  No auth, JSON.
+ * Docs: https://www.saos.org.pl/help/index.php/dokumentacja-api
  *
- * IMPORTANT — Verified empirically (2026-06):
- *   The Sąd Najwyższy (SUPREME) corpus in SAOS is FROZEN at 2016-06-22.
- *   Total: ~38,081 SN judgments. This is the historical foundation; for
- *   post-2016 SN coverage we'll need a separate sn.pl scraper (Phase 2).
+ * MVP-1 usage: COMMON court corpus is live (~466k judgments); SUPREME is
+ * frozen at 2016-06-22 (38k historical).  We hit `/search/judgments`
+ * with `courtType=COMMON` plus `legalBase` and/or `all` text-search
+ * parameters, then re-fetch each hit via `/judgments/{id}` to get the
+ * full `textContent` (search endpoint truncates).
  */
 
 import { fetchJson, sleep } from "../lib/http.js";
@@ -18,9 +19,16 @@ const BASE = "https://www.saos.org.pl/api";
 const PAGE_SIZE = 100;
 const POLITE_DELAY_MS = 600;
 
+export type SaosCourtType =
+  | "COMMON"
+  | "SUPREME"
+  | "ADMINISTRATIVE"
+  | "CONSTITUTIONAL_TRIBUNAL"
+  | "NATIONAL_APPEAL_CHAMBER";
+
 export interface SaosJudgment {
   id: number;
-  courtType: "SUPREME" | "COMMON" | "ADMINISTRATIVE" | "CONSTITUTIONAL_TRIBUNAL" | "NATIONAL_APPEAL_CHAMBER";
+  courtType: SaosCourtType;
   courtCases: Array<{ caseNumber: string }>;
   judgmentType: string;
   judgmentDate: string;
@@ -29,8 +37,18 @@ export interface SaosJudgment {
   judges?: Array<{ name: string; function?: string; specialRoles?: string[] }>;
   textContent?: string;
   keywords?: string[];
-  division?: { id: number; name: string; chambers?: Array<{ id: number; name: string }> };
-  source?: { judgmentUrl?: string; publicationDate?: string };
+  division?: {
+    id: number;
+    name: string;
+    court?: { id: number; name: string; type: string };
+  };
+  source?: {
+    code?: string;
+    judgmentUrl?: string;
+    judgmentId?: string;
+    publisher?: string;
+    publicationDate?: string;
+  };
   referencedRegulations?: Array<{
     journalTitle?: string;
     journalNo?: string;
@@ -47,73 +65,88 @@ interface SaosSearchResponse {
 }
 
 export interface SaosFetchOptions {
-  /** Only judgments on or after this ISO date. */
+  /** SAOS courtType filter. */
+  courtType?: SaosCourtType;
+  /** Filter by referenced legal basis (server-side string match). */
+  legalBase?: string;
+  /** Full-text query across the judgment body. */
+  all?: string;
+  /** ISO date from. */
   judgmentDateFrom?: string;
-  /** Only judgments on or before this ISO date. */
+  /** ISO date to. */
   judgmentDateTo?: string;
-  /** Polling — used by incremental runs. ISO `yyyy-MM-dd'T'HH:mm:ss.SSS`. */
+  /** Polling — incremental runs use this. */
   sinceModificationDate?: string;
-  /** Stop after this many items (handy for smoke tests). */
+  /** Stop after this many items. */
   maxItems?: number;
-  /** Where to write the raw JSONL. */
+  /** Politeness delay override. */
+  delayMs?: number;
+  /** Where to write the raw JSONL (default: data/raw/saos-<tag>.jsonl). */
   outFile?: string;
 }
 
-/**
- * Fetch every SN judgment matching the filters and stream them to a JSONL
- * file.  Uses the search endpoint (filtered) because the dump endpoint
- * rejects `courtType` and we'd otherwise have to download every court in
- * the SAOS corpus to filter client-side.
- */
-export async function fetchSnJudgments(opts: SaosFetchOptions = {}): Promise<{
+export interface SaosFetchResult {
   outFile: string;
   total: number;
-}> {
-  const outFile = opts.outFile ?? rawJsonl("saos");
+  totalReported: number;
+}
+
+/**
+ * Stream every SAOS judgment matching the filters into a JSONL file.
+ * Each line is a full single-judgment record (with `textContent`).
+ */
+export async function fetchSaosJudgments(opts: SaosFetchOptions = {}): Promise<SaosFetchResult> {
+  const tag = opts.outFile
+    ? "custom"
+    : (opts.legalBase ? "legalBase" : opts.all ? "all" : (opts.courtType ?? "common").toLowerCase());
+  const outFile = opts.outFile ?? rawJsonl("saos", tag);
   const writer = openJsonlWriter(outFile);
+  const delay = opts.delayMs ?? POLITE_DELAY_MS;
+
   const params = new URLSearchParams({
-    courtType: "SUPREME",
     pageSize: String(PAGE_SIZE),
     sortingField: "JUDGMENT_DATE",
     sortingDirection: "DESC",
   });
+  if (opts.courtType) params.set("courtType", opts.courtType);
+  if (opts.legalBase) params.set("legalBase", opts.legalBase);
+  if (opts.all) params.set("all", opts.all);
   if (opts.judgmentDateFrom) params.set("judgmentDateFrom", opts.judgmentDateFrom);
   if (opts.judgmentDateTo) params.set("judgmentDateTo", opts.judgmentDateTo);
   if (opts.sinceModificationDate) params.set("sinceModificationDate", opts.sinceModificationDate);
 
   let pageNumber = 0;
   let total = 0;
+  let totalReported = 0;
 
   while (true) {
     params.set("pageNumber", String(pageNumber));
     const url = `${BASE}/search/judgments?${params.toString()}`;
     const page = await fetchJson<SaosSearchResponse>(url, { retries: 4 });
+    totalReported = page.info.totalResults;
 
     if (!page.items?.length) break;
 
     for (const item of page.items) {
-      // Search endpoint sometimes returns truncated `textContent`; if so,
-      // hit the single-judgment endpoint to get the full body.
-      const full = item.textContent && item.textContent.length > 200
-        ? item
-        : await fetchSingle(item.id);
+      // Full body — search endpoint truncates `textContent` for hits.
+      const full = await fetchSingle(item.id);
       writer.write(full);
       total++;
       if (opts.maxItems && total >= opts.maxItems) {
         await writer.close();
-        return { outFile, total };
+        return { outFile, total, totalReported };
       }
+      await sleep(delay);
     }
 
     pageNumber++;
     if (pageNumber * PAGE_SIZE >= page.info.totalResults) break;
-    await sleep(POLITE_DELAY_MS);
   }
 
   await writer.close();
-  return { outFile, total };
+  return { outFile, total, totalReported };
 }
 
-async function fetchSingle(id: number): Promise<SaosJudgment> {
+export async function fetchSingle(id: number): Promise<SaosJudgment> {
   return fetchJson<SaosJudgment>(`${BASE}/judgments/${id}`, { retries: 3 });
 }

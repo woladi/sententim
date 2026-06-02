@@ -1,13 +1,19 @@
 /**
  * Signature normalisation — single source of truth.
  *
- * "II CSK 123/22"     → "II_CSK_123_22"
- * "ii csk 123 / 22"   → "II_CSK_123_22"
- * "C-123/22 P"        → "C_123_22_P"
- * "ECLI:EU:C:2023:1"  → "ECLI_EU_C_2023_1"
+ * Two outputs per signature:
  *
- * Polish diacritics are stripped so the FTS index (remove_diacritics=2) and
- * the normalised column agree.
+ *   1. `displaySignature(raw)` — light cleanup, ready to round-trip back
+ *      to a human.  Keeps slashes, uppercases letters, collapses runs of
+ *      whitespace, removes dots inside abbreviations (`C.S.K.` → `CSK`).
+ *
+ *   2. `normaliseSignature(raw)` — what we match on.  Same as (1) PLUS
+ *      diacritic stripping, so `Łeb/Ąć` collapses to `LEB/AC` and stays
+ *      consistent with the FTS5 `unicode61 remove_diacritics=2` tokenizer.
+ *
+ * Rationale: signatures themselves rarely contain Polish diacritics, but
+ * we never want a user typing the sąd's full name or a fancy
+ * apostrophe to silently miss a match.
  */
 
 const POLISH_DIACRITICS: Record<string, string> = {
@@ -19,36 +25,44 @@ export function stripDiacritics(input: string): string {
   return input.replace(/[ąćęłńóśźżĄĆĘŁŃÓŚŹŻ]/g, (c) => POLISH_DIACRITICS[c] ?? c);
 }
 
-export function normaliseSignature(raw: string): string {
-  return stripDiacritics(raw)
+/**
+ * Display form — case-folded, dot-stripped abbreviations, whitespace tidy.
+ * Slashes are preserved.
+ *
+ *   "ii  c.s.k.   822/22"  →  "II CSK 822/22"
+ *   "I C 822 / 22"         →  "I C 822/22"
+ *   "C-311/18 P"           →  "C-311/18 P"
+ */
+export function displaySignature(raw: string): string {
+  return raw
+    .trim()
     .toUpperCase()
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[\s/\-.,;:()[\]]+/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_|_$/g, "");
+    .replace(/\s*\/\s*/g, "/")
+    .replace(/([A-ZĄĆĘŁŃÓŚŹŻ])\.(?=[A-ZĄĆĘŁŃÓŚŹŻ]\.?)/g, "$1")
+    .replace(/([A-ZĄĆĘŁŃÓŚŹŻ])\.$/g, "$1")
+    .replace(/\s+/g, " ");
 }
 
 /**
- * Best-effort signature equivalence. Two signatures match when their
- * normalised forms match.
+ * Lookup form — `displaySignature` + diacritic stripping. This is what
+ * goes into `sygnatura_norm` and the FTS index.
+ */
+export function normaliseSignature(raw: string): string {
+  return stripDiacritics(displaySignature(raw));
+}
+
+/**
+ * True when two signatures look the same after our normalisation.
  */
 export function signaturesMatch(a: string, b: string): boolean {
   return normaliseSignature(a) === normaliseSignature(b);
 }
 
 /**
- * Build the canonical internal id from source + signature.
- * Example: SN + "II CSK 123/22" → "sn-II_CSK_123_22"
- */
-export function buildRulingId(source: "SN" | "CJEU", signature: string): string {
-  return `${source.toLowerCase()}-${normaliseSignature(signature)}`;
-}
-
-/**
- * Strip light HTML noise from SAOS text fields (`<p>`, `<em>`, `<br/>`).
- * SAOS doesn't return rich HTML — usually only paragraph and emphasis tags
- * around search matches — so a regex strip is safe enough.
+ * Strip light SAOS-style HTML out of `textContent` so the raw body is
+ * regex-friendly for our deterministic parsers.  SAOS occasionally
+ * wraps fragments in `<p>` and `<em>` (the latter when search hits are
+ * highlighted); we do not need rich-text fidelity.
  */
 export function stripLightHtml(input: string | null | undefined): string {
   if (!input) return "";

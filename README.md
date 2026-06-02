@@ -1,39 +1,47 @@
 # sententim
 
-**The local-first case-law engine for the AI era.**
-Ultra-fast (`<10 ms`), offline by default, MCP-native — built so your LLM can ground every Polish Supreme Court (SN) and EU Court of Justice (CJEU/TSUE) citation it makes, without paying €/month for a closed legal portal.
+**Deterministyczny weryfikator sygnatur polskich wyroków. Zero LLM w runtime. Zero halucynacji.**
+
+Sprawdzasz: czy ten wyrok istnieje?
+Otrzymujesz: `FOUND` / `NOT_FOUND` / `AMBIGUOUS` — z twardymi faktami ze źródła.
 
 [![npm](https://img.shields.io/npm/v/sententim?style=flat-square&color=000000)](https://www.npmjs.com/package/sententim)
 [![ci](https://img.shields.io/github/actions/workflow/status/woladi/sententim/ci.yml?branch=main&style=flat-square&label=ci)](https://github.com/woladi/sententim/actions/workflows/ci.yml)
-[![weekly etl](https://img.shields.io/github/actions/workflow/status/woladi/sententim/etl-weekly.yml?branch=main&style=flat-square&label=weekly%20etl)](https://github.com/woladi/sententim/actions/workflows/etl-weekly.yml)
 [![license](https://img.shields.io/github/license/woladi/sententim?style=flat-square)](LICENSE)
 [![MCP](https://img.shields.io/badge/Model_Context_Protocol-1.x-black?style=flat-square)](https://modelcontextprotocol.io)
 
-> **sententim** *(łac.)* — "z osądu", "z opinii". Stąd polskie **sentencja**.
-> The opinion of the court, distilled — and indexed for your AI.
-
 ---
 
-## Why sententim exists
+## Po co to istnieje
 
-Polish lawyers pay 6–7 zł a year for closed legal portals (Lex, Legalis). They are excellent products — and they were designed for a world in which a human lawyer reads judgments one at a time. That world is ending.
+LLM-y, które piszą o polskim prawie, **konfabulują sygnatury**. *„Sąd Najwyższy, II CSK 999/22 — orzekł, że…"* — sygnatura nie istnieje, sąd nigdy się nie wypowiedział, model brzmi pewnie.
 
-The new bottleneck is hallucination. Any LLM you point at Polish case-law will invent signatures, misquote ECLIs, and confidently cite *Sąd Najwyższy II CSK 999/22* that never existed. The fix is not a smarter model. The fix is **letting the model verify every citation locally, in microseconds, against a real, bundled corpus.**
+Sententim rozwiązuje **dokładnie ten jeden problem**:
 
-That's the job sententim does.
+> Zanim zacytujesz sygnaturę — sprawdź, czy ona naprawdę istnieje. Lokalnie. W mikrosekundach. Bez wysyłania niczego do chmury.
 
-- 🇵🇱 **Polish Supreme Court** (Sąd Najwyższy) — historical foundation via SAOS.
-- 🇪🇺 **CJEU / TSUE** — refreshed weekly from CELLAR (Publications Office of the EU).
-- 🧠 **AI-ready** — every ruling has a 2-sentence LLM-generated essence + normalised tags.
-- ⚡ **Sub-10 ms lookups** — SQLite + FTS5, mmapped, prepared statements, zero network in runtime.
-- 🔒 **100 % local** — your queries never leave your machine.
-- 📦 **Zero infrastructure** — one `npm install` and the database ships with the package.
+Reguła naczelna: **jeśli czegoś nie ma w bazie → `NOT_FOUND`. Nigdy nie zgaduj.**
 
----
+## Czym to NIE jest
+
+- ❌ Nie jest wyszukiwarką semantyczną (FTS5 jest, ale narzędzie `search_judgments` przyjdzie w v0.2 — i też deterministycznie)
+- ❌ Nie generuje streszczeń, omówień ani interpretacji
+- ❌ Nie jest alternatywą dla Lex / Legalis — to jedno małe, precyzyjne narzędzie do jednej rzeczy
+- ❌ Nie korzysta z LLM w runtime — w paczce nie ma ani jednego API-call do chmury
+
+## Co jest w paczce (MVP-1)
+
+| Pole | Wartość |
+|---|---|
+| **Domena prawna** | Sankcja kredytu darmowego (art. 45 ukk + art. 75c pr.bank) |
+| **Źródło** | SAOS · System Analizy Orzeczeń Sądowych (publiczne, otwarte dane) |
+| **Korpus** | ~1300 wyroków SR / SO / SA / SN dotykających tej tematyki |
+| **Tooling** | Jedno narzędzie MCP: `verify_signature` |
+| **Audyt** | Każdy rekord: `zrodlo_url` + `data_pobrania` + `sha256(textContent)` |
 
 ## Quick start
 
-### Claude Code (CLI)
+### Claude Code
 
 ```bash
 claude mcp add sententim -- npx sententim-mcp
@@ -41,7 +49,7 @@ claude mcp add sententim -- npx sententim-mcp
 
 ### Claude Desktop
 
-`claude_desktop_config.json`:
+W `claude_desktop_config.json`:
 
 ```json
 {
@@ -56,198 +64,173 @@ claude mcp add sententim -- npx sententim-mcp
 
 ### Cursor / Continue / any MCP client
 
-Use stdio transport, command `npx sententim-mcp`. Done.
+Transport: stdio, komenda: `npx sententim-mcp`.
 
-### Or just use it from your code
-
-```ts
-import { RulingsDb } from "sententim";
-
-const db = new RulingsDb();
-const result = db.verify("II CSK 311/22");
-//  { exists: true, ruling: { … }, tookMs: 0.42 }
-```
-
----
-
-## The tools your LLM gets
-
-| Tool                  | What it does                                                                                                                            |
-| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| **`verify_signature`** | Verify any SN/CJEU citation — returns the canonical record or up to 3 fuzzy alternatives. *Use this before citing.*                     |
-| **`search_by_topic`**  | Full-text search on signatures, summaries, tags. Diacritic-insensitive (`odszkodowanie` ≡ `odszkodowanie`).                             |
-| **`get_ruling`**       | Fetch a complete record by `id`, `ecli`, or `signature`.                                                                                |
-| **`list_latest`**      | The N most recent rulings in either corpus — useful for staying current.                                                                |
-| **`db_info`**          | Coverage stats: per-source counts and the latest judgment date. *Tell users honestly what you do and don't know.*                       |
-
-Every tool returns structured JSON. Every tool is designed to be called *before* the model generates its answer — not after.
-
----
-
-## Architecture
-
-### Hybrid ETL pipeline
-
-We split the data work between two environments that have different cost profiles:
-
-```
-                   ┌──────────────────────────────────────┐
-                   │   Local (developer's machine)        │
-   one-time   ──▶  │   • full SAOS dump (~38k SN)         │
-   "cold seed"     │   • CELLAR back-fill (configurable)  │
-                   │   • Claude Haiku batch summarisation │
-                   │   • git commit  data/rulings.db      │
-                   └──────────────────┬───────────────────┘
-                                      │
-                                      ▼
-                   ┌──────────────────────────────────────┐
-                   │   GitHub Actions · etl-weekly.yml    │
-   every Mon  ──▶  │   • CELLAR ?date >= now-10d          │
-   03:30 UTC       │   • SAOS sinceModificationDate       │
-                   │   • Haiku summaries (small batch)    │
-                   │   • opens PR with refreshed DB       │
-                   └──────────────────┬───────────────────┘
-                                      │ merge ↳
-                                      ▼
-                   ┌──────────────────────────────────────┐
-                   │   release.yml → npm publish          │
-                   │   (changesets, provenance enabled)   │
-                   └──────────────────────────────────────┘
-```
-
-| Phase             | Where                | What                                                                       |
-| ----------------- | -------------------- | -------------------------------------------------------------------------- |
-| **Seed**          | Developer localhost  | Full historical dump. Heavy. Done once. Uses your local Anthropic API key. |
-| **Weekly delta**  | GitHub Actions cron  | ~10-day overlap window. Small batch. Fits comfortably in a free-tier LLM budget. |
-| **Release**       | GitHub Actions push  | `pnpm build` → `pnpm etl:verify` → `pnpm publish` with provenance.         |
-
-### Runtime
-
-```
-                       ┌────────────────────────────────┐
-   MCP client          │  sententim-mcp · stdio         │
-   (Claude, Cursor) ──▶│   verify_signature             │
-                       │   search_by_topic              │
-                       │   get_ruling, list_latest      │
-                       └────────────┬───────────────────┘
-                                    │ better-sqlite3 (sync)
-                                    ▼
-                       ┌────────────────────────────────┐
-                       │  data/rulings.db  (mmap 256MB) │
-                       │   • rulings   (canonical)      │
-                       │   • rulings_fts (FTS5,         │
-                       │       unicode61,               │
-                       │       remove_diacritics=2)     │
-                       │   • manifest  (build metadata) │
-                       └────────────────────────────────┘
-```
-
-The DB ships **inside the npm package**. No download on first run. No CDN. No outbound call. Polish diacritics are handled at the tokeniser level — search with or without marks, get the same hits.
-
----
-
-## Data sources
-
-| Source     | What we ingest                                                  | Notes                                                                                       |
-| ---------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| **SAOS**   | Full Sąd Najwyższy corpus, ~38k judgments since 1917            | ⚠️ Upstream SAOS ingestion of SN is frozen at **2016-06-22**. Phase-2 sn.pl scraper planned. |
-| **CELLAR** | CJEU judgments, orders, AG opinions — Polish text where available | SPARQL discovery + REST body fetch with `Accept-Language: pol` fallback to `eng`/`fra`.    |
-
-Both sources are public-domain (Polish art. 4 ust. o prawie aut.; EU Decision 2011/833/EU). Reuse is free; attribution welcome.
-
----
-
-## Schema (one row per ruling)
+### Z poziomu kodu
 
 ```ts
-type Ruling = {
-  id: string;            // sn-II_CSK_123_22 | cjeu-C_311_18
-  source: "SN" | "CJEU";
-  ecli: string | null;   // ECLI:EU:C:2020:559 (CJEU has these; SN often null)
-  signature: string;     // "II CSK 311/22"
-  court: string;         // "Sąd Najwyższy"
-  chamber: string | null;// "Izba Cywilna"
-  date: string;          // YYYY-MM-DD
-  type: "wyrok" | "postanowienie" | "uchwała" | "judgment" | "order" | "opinion";
-  summary: string;       // exactly 2 sentences, LLM-generated
-  tags: string[];        // 3–10 normalised concepts ("art. 415 k.c.", "RODO")
-  legalBasis: { act: string; article: string }[];
-  sourceUrl: string;     // canonical upstream URL
+import { JudgmentsDb } from "sententim";
+import { runVerifySignature } from "sententim/dist/tools/verify-signature.js";
+
+const db = new JudgmentsDb();
+const r = runVerifySignature(db, { sygnatura: "II CSK 750/15" });
+// {
+//   status: "FOUND",
+//   matches: [{ sygnatura, sad, instancja, data_orzeczenia,
+//                sentencja_typ, podstawa_prawna, zrodlo_url, ... }],
+//   disclaimer: "Dane deterministyczne ze źródła publicznego. ..."
+// }
+```
+
+## Kontrakt narzędzia MCP
+
+**Tool**: `verify_signature`
+
+```ts
+input: {
+  sygnatura: string;           // np. "II CSK 750/15"
+  sad?:      string;           // zawęża po substringu nazwy sądu
+  data?:     string;           // zawęża po dokładnej dacie ISO YYYY-MM-DD
+}
+
+output: {
+  status:  "FOUND" | "NOT_FOUND" | "AMBIGUOUS",
+  matches: Array<{
+    sygnatura, sad, instancja,
+    data_orzeczenia, sentencja_typ,
+    prawomocny, uchylony_przez,
+    podstawa_prawna, zrodlo_url, data_pobrania
+  }>,
+  disclaimer: "Dane deterministyczne ze źródła publicznego. Zweryfikuj treść w źródle. Nie stanowi porady prawnej."
+}
+```
+
+| status | znaczenie | matches |
+|---|---|---|
+| `FOUND` | dokładnie jedno trafienie | `[{...}]` |
+| `NOT_FOUND` | zero trafień — **nie cytuj tej sygnatury** | `[]` |
+| `AMBIGUOUS` | ta sama sygnatura w ≥2 sądach — zwracamy wszystkich kandydatów, **bez wybierania** | `[{...}, {...}, …]` |
+
+## Schemat danych
+
+```ts
+type Judgment = {
+  sygnatura:       string;                    // "II CSK 750/15"
+  sygnatura_norm:  string;                    // matchowanie: upper-case, bez kropek, ASCII
+  sad:             string;                    // "Sąd Rejonowy w Olsztynie"
+  instancja:       "SR"|"SO"|"SA"|"SN"|"NSA"|"WSA"|"TK"|"TSUE";
+  data_orzeczenia: string;                    // ISO YYYY-MM-DD
+  sentencja_typ:   "oddala"|"uwzglednia"|"uchyla_przekazuje"|"zmienia"|"umarza"|"inne"|null;
+  prawomocny:      0|1|null;                  // NULL w MVP-1 (v0.2: cross-ref pass)
+  uchylony_przez:  string|null;               // NULL w MVP-1
+  podstawa_prawna: string[];                  // ["art. 45 ukk", "art. 75c pr.bank"]
+  zrodlo_url:      string;
+  data_pobrania:   string;                    // ISO timestamp
+  sha256:          string;                    // hash surowego textContent (audyt)
 };
 ```
 
-Full text is **not** bundled — it would balloon the package without proportional value for a citation-grounding tool. The model uses summary + tags + signature, and links out to the source URL when the user wants to read.
+Każde pole pochodzi z deterministycznej ekstrakcji — pełna lista parserów: `scripts/etl/parsers/`.
 
----
+## Architektura
 
-## Developing
+```
+                                         (one-shot, ~15-20 min, lokalnie u devy)
+    SAOS REST API ──── seed.ts ─────┐
+                                    │
+                                    ▼
+                            data/judgments.db                ← (commited do repo,
+                            (~1300 wierszy, FTS5)              shipowane w paczce npm)
+                                    │
+                                    │ better-sqlite3 (sync, PRAGMA query_only=1)
+                                    ▼
+                            sententim-mcp · stdio            ← runtime: 0 LLM, 0 sieci
+                                    │
+                                    ▼
+                            verify_signature
+                                    │
+                                    ▼
+                            FOUND | NOT_FOUND | AMBIGUOUS
+```
+
+| Komponent | Stack |
+|---|---|
+| Schema | SQLite + FTS5 (`tokenize="unicode61 remove_diacritics 2"`) |
+| Runtime | better-sqlite3 (sync), prepared statements, PRAGMA query_only=1 |
+| MCP | @modelcontextprotocol/sdk 1.x, stdio transport |
+| ETL | TypeScript pure-fn — zero LLM, zero zewnętrznych API poza SAOS |
+
+## Limity i znane luki
+
+- **`prawomocny` zawsze NULL w MVP-1** — nie można ustalić bez cross-refa z apelacją. Roadmap v0.2.
+- **`uchylony_przez` zawsze NULL w MVP-1** — analogicznie.
+- **`sentencja_typ` `NULL` jeśli żaden z 5 regexów nie trafia** — świadomie zamiast zgadywać `'inne'`. W praktyce ~20-30% wyroków ma `NULL` (najczęściej compound rulings które wymagają mocniejszej heurystyki).
+- **CJEU / TSUE wyłączone** — kod istnieje pod flagą `SENTENTIM_ENABLE_CJEU=1`, ale integracja z nowym deterministycznym schematem wymaga przeprojektowania (roadmap v0.5).
+- **Daty filtrowane** do zakresu `1990-01-01 ... dzisiaj+1d` (literówki w źródle typu „3013-…" są odrzucane).
+
+## Roadmap
+
+- **v0.1** — `verify_signature`, sankcja kredytu darmowego, SAOS. *Tu jesteś.*
+- **v0.2** — `search_judgments` (FTS5 po sygnaturze + podstawie prawnej), cross-ref pass dla `prawomocny`/`uchylony_przez`.
+- **v0.3** — Druga domena prawna (rozszerzenie korpusu seedu).
+- **v0.4** — Scraper sn.pl dla SN post-2016 (SAOS-owy SN zamrożony na 2016-06-22).
+- **v0.5** — Aktywacja CJEU/TSUE (osobny schema-extension dla ECLI + procedural lang).
+
+Streszczenia LLM — **tylko z human-in-the-loop i flagą provenance**, **nigdy** w default-path.
+
+## Development
 
 ```bash
 pnpm install
 pnpm typecheck
 pnpm lint
 pnpm test
+
+pnpm etl:seed             # ~15-20 min, lokalnie, produkuje data/judgments.db
+pnpm etl:seed --max=50    # smoke
+pnpm etl:verify           # pre-publish gate
 pnpm build
-
-# Local seed (heavy — ~5–15 min for full SAOS SN dump)
-ANTHROPIC_API_KEY=sk-ant-... pnpm etl:seed -- --since=2010-01-01 --max-cjeu=500
-
-# Or piecemeal:
-pnpm etl:saos
-pnpm etl:cjeu
-pnpm etl:summarize
-pnpm etl:build-db
 ```
 
-`pnpm dev` runs the server in watch mode. `pnpm sententim info` (after `pnpm build`) prints the manifest of the current DB.
-
-### Project layout
+Layout:
 
 ```
 sententim/
 ├── src/
-│   ├── index.ts            · stdio MCP entry
-│   ├── server.ts           · MCP server + tool routing
-│   ├── db.ts               · RulingsDb (better-sqlite3 + FTS5)
-│   ├── normalize.ts        · signature & diacritic helpers
-│   ├── types.ts
-│   ├── cli.ts              · `sententim` CLI for ad-hoc inspection
-│   └── tools/              · one file per MCP tool
+│   ├── index.ts                · stdio MCP entry
+│   ├── server.ts               · jeden tool zarejestrowany
+│   ├── db.ts                   · JudgmentsDb (PRAGMA query_only=1)
+│   ├── normalize.ts            · displaySignature + normaliseSignature
+│   ├── types.ts                · Judgment, VerifyResult, Manifest
+│   ├── cli.ts                  · `sententim info` / `sententim verify`
+│   └── tools/verify-signature.ts
 ├── scripts/etl/
-│   ├── sources/            · saos.ts · cjeu.ts
-│   ├── normalize.ts        · raw → canonical
-│   ├── summarize.ts        · LLM 2-sentence summaries
-│   ├── build-db.ts         · staging JSONL → SQLite
-│   ├── seed.ts             · local cold start
-│   ├── incremental.ts      · CI weekly delta
-│   └── verify.ts           · prepublish sanity gate
+│   ├── parsers/
+│   │   ├── sentencja-typ.ts    · regex outcome classifier
+│   │   ├── podstawa-prawna.ts  · regex legal-basis extractor
+│   │   └── sad-instancja.ts    · court → SR/SO/SA/SN/...
+│   ├── sources/
+│   │   ├── saos.ts             · SAOS REST API client
+│   │   └── cjeu.ts             · gated SENTENTIM_ENABLE_CJEU (deferred)
+│   ├── normalize.ts            · raw SAOS → canonical
+│   ├── build-db.ts             · staged JSONL → SQLite + manifest
+│   ├── seed.ts                 · unia 2 queries SAOS
+│   └── verify.ts               · prepublish gate
 ├── data/
-│   ├── schema.sql          · SQLite + FTS5 DDL
-│   ├── rulings.db          · published artefact
-│   └── manifest.json       · published artefact
-├── tests/                  · vitest
+│   ├── schema.sql              · DDL (commit)
+│   ├── judgments.db            · published artefact
+│   └── manifest.json           · published artefact
+├── tests/
+│   ├── normalize.test.ts
+│   ├── parsers.test.ts
+│   ├── db.test.ts
+│   └── verify-contract.test.ts
 └── .github/workflows/
     ├── ci.yml
-    ├── etl-weekly.yml      · Monday 03:30 UTC
-    └── release.yml         · changesets → npm
+    └── release.yml             · changesets → npm
 ```
-
----
-
-## Roadmap
-
-- **v0.1** — SN historical (SAOS) + CJEU weekly. *You are here.*
-- **v0.2** — sn.pl scraper for SN post-2016.
-- **v0.3** — NSA / WSA (CBOSA) administrative-court tier.
-- **v0.4** — Citation graph (`cites_*` from CELLAR), so an LLM can walk the precedent chain.
-- **v0.5** — Optional full-text companion package (`sententim-full`) with bodies for users who want them.
-- **v1.0** — Stability, profiling, sub-5 ms p95 across a 100k-corpus.
-
----
 
 ## License
 
 [MIT](LICENSE) © Adrian Wołczuk.
-Data is reused under public-domain provisions: Polish *Ustawa o prawie autorskim* (art. 4) for SN, [Decision 2011/833/EU](https://eur-lex.europa.eu/eli/dec/2011/833/oj/eng) for CJEU.
-
-Built as part of a [privacy-first AI ecosystem](https://github.com/woladi). If sententim saves you from hallucinating in court, send a postcard.
+Dane SAOS wykorzystywane na podstawie art. 4 ustawy o prawie autorskim (orzeczenia organów państwowych poza zakresem ochrony).

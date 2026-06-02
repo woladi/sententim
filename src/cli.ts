@@ -1,24 +1,22 @@
 /**
- * Small CLI wrapper for ad-hoc inspection without going through MCP.
+ * sententim CLI — `info` + `verify` only in MVP-1.
  *
  *   sententim info
- *   sententim verify "II CSK 123/22"
- *   sententim search "RODO podstawa prawna"
- *   sententim latest SN 5
+ *   sententim verify "II CSK 750/15"
+ *   sententim verify "I C 822/22" --sad "Olsztyn"
+ *   sententim verify "I C 822/22" --data 2022-09-15
  */
-import { RulingsDb } from "./db.js";
-import { runDbInfo } from "./tools/db-info.js";
+import { JudgmentsDb } from "./db.js";
+import { runVerifySignature } from "./tools/verify-signature.js";
 
 function help(): void {
   process.stdout.write(
     [
-      "sententim · local case-law CLI",
+      "sententim · deterministic Polish-law citation verifier",
       "",
       "Usage:",
       "  sententim info",
-      "  sententim verify <citation>",
-      "  sententim search <query> [--source SN|CJEU] [--limit N]",
-      "  sententim latest <SN|CJEU> [N]",
+      "  sententim verify <sygnatura> [--sad <name>] [--data <YYYY-MM-DD>]",
       "",
       "Env:",
       "  SENTENTIM_DB_PATH  override the bundled DB location",
@@ -27,10 +25,10 @@ function help(): void {
   );
 }
 
-function arg(name: string, fallback?: string): string | undefined {
+function flag(name: string): string | undefined {
   const idx = process.argv.findIndex((a) => a === `--${name}`);
-  if (idx === -1) return fallback;
-  return process.argv[idx + 1] ?? fallback;
+  if (idx === -1) return undefined;
+  return process.argv[idx + 1];
 }
 
 async function main(): Promise<number> {
@@ -40,58 +38,47 @@ async function main(): Promise<number> {
     return 0;
   }
 
-  const db = new RulingsDb({ path: process.env.SENTENTIM_DB_PATH });
+  const db = new JudgmentsDb({ path: process.env.SENTENTIM_DB_PATH });
 
   try {
     switch (cmd) {
       case "info": {
-        process.stdout.write(`${JSON.stringify(runDbInfo(db), null, 2)}\n`);
+        const m = db.manifest();
+        process.stdout.write(`${JSON.stringify(m, null, 2)}\n`);
         return 0;
       }
       case "verify": {
-        const citation = rest.filter((r) => !r.startsWith("--")).join(" ");
-        if (!citation) {
-          process.stderr.write("Usage: sententim verify <citation>\n");
+        const sygnatura = rest.filter((r) => !r.startsWith("--") && !isFlagValue(rest, r)).join(" ");
+        if (!sygnatura) {
+          process.stderr.write("Usage: sententim verify <sygnatura> [--sad …] [--data …]\n");
           return 2;
         }
-        const r = db.verify(citation);
-        process.stdout.write(`${JSON.stringify(r, null, 2)}\n`);
-        return r.exists ? 0 : 1;
+        const result = runVerifySignature(db, {
+          sygnatura,
+          sad: flag("sad"),
+          data: flag("data"),
+        });
+        process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+        return result.status === "FOUND" ? 0 : result.status === "AMBIGUOUS" ? 0 : 1;
       }
-      case "search": {
-        const query = rest.filter((r) => !r.startsWith("--")).join(" ");
-        if (!query) {
-          process.stderr.write("Usage: sententim search <query>\n");
-          return 2;
-        }
-        const source = arg("source") as "SN" | "CJEU" | undefined;
-        const limit = Number(arg("limit", "10"));
-        const hits = db.searchByTopic(query, { source, limit });
-        process.stdout.write(`${JSON.stringify(hits, null, 2)}\n`);
-        return 0;
-      }
-      case "latest": {
-        const source = rest[0] as "SN" | "CJEU" | undefined;
-        const n = Number(rest[1] ?? 10);
-        if (source !== "SN" && source !== "CJEU") {
-          process.stderr.write("Usage: sententim latest <SN|CJEU> [N]\n");
-          return 2;
-        }
-        const rows = db.latest(source, n);
-        process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
-        return 0;
-      }
-      default: {
+      default:
         help();
         return 2;
-      }
     }
   } finally {
     db.close();
   }
 }
 
-main().then((code) => process.exit(code)).catch((err) => {
-  process.stderr.write(`sententim · ${(err as Error).message}\n`);
-  process.exit(1);
-});
+function isFlagValue(rest: string[], v: string): boolean {
+  const i = rest.indexOf(v);
+  if (i <= 0) return false;
+  return rest[i - 1]?.startsWith("--") ?? false;
+}
+
+main()
+  .then((code) => process.exit(code))
+  .catch((err) => {
+    process.stderr.write(`sententim · ${(err as Error).message}\n`);
+    process.exit(1);
+  });

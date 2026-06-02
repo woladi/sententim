@@ -1,16 +1,21 @@
 /**
- * CJEU / TSUE ingestion via CELLAR (Publications Office of the EU).
+ * ╔══════════════════════════════════════════════════════════════════════╗
+ * ║  ⚠️  DEFERRED — gated behind SENTENTIM_ENABLE_CJEU=1                  ║
+ * ║                                                                      ║
+ * ║  This module fetches CJEU/TSUE judgments from CELLAR.                ║
+ * ║  In MVP-1 the Polish-named schema in data/schema.sql has no `ecli`   ║
+ * ║  column and no general CJEU representation, so this code is NOT      ║
+ * ║  wired into the seed pipeline.                                       ║
+ * ║                                                                      ║
+ * ║  When SENTENTIM_ENABLE_CJEU is set, callers may invoke               ║
+ * ║  fetchCjeuJudgments() directly to refresh raw JSONL, but the         ║
+ * ║  normalisation step needed to land CJEU rows into `judgments`        ║
+ * ║  (mapping CELEX → sygnatura, ECLI → URL, etc.) is deliberately       ║
+ * ║  out of scope and will land in v0.5.                                 ║
+ * ╚══════════════════════════════════════════════════════════════════════╝
  *
- *  Discovery   → SPARQL endpoint at publications.europa.eu/webapi/rdf/sparql
- *  Full text   → REST  endpoint /resource/celex/{CELEX} with Accept-Language: pol
- *
- * Verified (2026-06):
- *  - SPARQL is online and responds to anonymous requests in JSON.
- *  - REST returns full Polish HTML when Accept-Language: pol is set.
- *  - Polish is one of 24 procedural languages; AG opinions and orders may
- *    lag — we probe and fall back to fra / eng.
- *
- * Volume — ~1.5–2k CJEU instruments per year; weekly increments stay small.
+ * Discovery: SPARQL at publications.europa.eu/webapi/rdf/sparql.
+ * Body:      REST /resource/celex/{CELEX} with Accept-Language: pol.
  */
 
 import { fetchJson, fetchText, sleep } from "../lib/http.js";
@@ -25,47 +30,36 @@ export interface CjeuDiscoveryRow {
   ecli: string;
   celex: string;
   date: string;
-  /** JUDG | ORDER | OPIN_AG | VIEW_AG */
   type: string;
-  /** Court formation code (e.g. CHAMB_01_C) */
   formation: string | null;
-  /** Procedure type code (e.g. PREJ) */
   procedureType: string | null;
 }
 
-export interface CjeuRecord extends CjeuDiscoveryRow {
-  htmlByLang: Record<string, string>;
-}
-
 export interface CjeuFetchOptions {
-  /** ISO date — earliest judgment date to ingest (inclusive). */
   since?: string;
-  /** ISO date — latest judgment date to ingest (inclusive). */
   until?: string;
-  /** Stop after this many items (smoke tests). */
   maxItems?: number;
-  /** Languages to attempt for the body, in fallback order. */
   languages?: string[];
   outFile?: string;
 }
 
-const SHORT_NAME: Record<string, string> = {
-  JUDG: "judgment",
-  ORDER: "order",
-  OPIN_AG: "opinion",
-  VIEW_AG: "opinion",
-  OPIN_JUR: "opinion",
-};
-
-/**
- * 1. Ask CELLAR for every CJEU instrument with a date in [since, until].
- * 2. For each, fetch the body in Polish (with eng/fra fallback).
- * 3. Stream to JSONL.
- */
-export async function fetchCjeuJudgments(opts: CjeuFetchOptions = {}): Promise<{
+export interface CjeuFetchResult {
   outFile: string;
   total: number;
-}> {
+}
+
+export function cjeuEnabled(): boolean {
+  return process.env.SENTENTIM_ENABLE_CJEU === "1";
+}
+
+export async function fetchCjeuJudgments(opts: CjeuFetchOptions = {}): Promise<CjeuFetchResult> {
+  if (!cjeuEnabled()) {
+    throw new Error(
+      "CJEU ingestion is disabled. Set SENTENTIM_ENABLE_CJEU=1 to enable. " +
+        "See sources/cjeu.ts header — MVP-1 schema needs rework before CJEU rows can land in judgments.db.",
+    );
+  }
+
   const outFile = opts.outFile ?? rawJsonl("cjeu");
   const languages = opts.languages ?? ["pol", "eng", "fra"];
   const writer = openJsonlWriter(outFile);
@@ -88,15 +82,14 @@ export async function fetchCjeuJudgments(opts: CjeuFetchOptions = {}): Promise<{
         });
         if (body && body.length > 500) {
           htmlByLang[lang] = body;
-          break; // first-language-wins for body fetching
+          break;
         }
       } catch {
         // try next language
       }
       await sleep(150);
     }
-
-    writer.write({ ...row, shortType: SHORT_NAME[row.type] ?? "judgment", htmlByLang });
+    writer.write({ ...row, htmlByLang });
     written++;
     await sleep(POLITE_DELAY_MS);
   }

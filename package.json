@@ -1,27 +1,26 @@
 {
   "name": "sententim",
   "version": "0.1.0",
-  "description": "Ultra-fast local-first MCP server protecting LLMs from hallucinations in Polish Supreme Court (SN) and EU (CJEU/TSUE) case law. Sub-10ms lookups, fully offline, Polish diacritics first-class.",
+  "description": "Deterministyczny weryfikator sygnatur wyroków polskich sądów — MCP, lokalnie, offline, zero LLM w runtime. Jeśli wyrok nie istnieje w bazie → NOT_FOUND, nigdy halucynacji.",
   "keywords": [
     "mcp",
     "model-context-protocol",
     "legaltech",
-    "law",
     "polish-law",
-    "eu-law",
-    "cjeu",
-    "tsue",
-    "sn",
-    "sad-najwyzszy",
     "orzecznictwo",
-    "ai",
-    "llm",
-    "hallucination-prevention",
+    "sad-najwyzszy",
+    "sad-rejonowy",
+    "sad-okregowy",
+    "saos",
+    "sygnatura",
     "local-first",
-    "privacy",
+    "deterministic",
+    "no-llm-runtime",
     "claude",
     "sqlite",
-    "fts5"
+    "fts5",
+    "typescript",
+    "sankcja-kredytu-darmowego"
   ],
   "homepage": "https://github.com/woladi/sententim#readme",
   "bugs": {
@@ -56,7 +55,7 @@
   },
   "files": [
     "dist/",
-    "data/rulings.db",
+    "data/judgments.db",
     "data/manifest.json",
     "data/schema.sql",
     "README.md",
@@ -76,11 +75,6 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "etl:seed": "tsx scripts/etl/seed.ts",
-    "etl:incremental": "tsx scripts/etl/incremental.ts",
-    "etl:saos": "tsx scripts/etl/sources/saos.ts",
-    "etl:cjeu": "tsx scripts/etl/sources/cjeu.ts",
-    "etl:summarize": "tsx scripts/etl/summarize.ts",
-    "etl:build-db": "tsx scripts/etl/build-db.ts",
     "etl:verify": "tsx scripts/etl/verify.ts",
     "prepublishOnly": "pnpm run build && pnpm run etl:verify",
     "release": "changeset publish"
@@ -91,7 +85,6 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@anthropic-ai/sdk": "^0.32.1",
     "@biomejs/biome": "^1.9.4",
     "@changesets/cli": "^2.27.10",
     "@types/better-sqlite3": "^7.6.12",

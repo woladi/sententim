@@ -2,17 +2,13 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { createServer } from "./server.js";
 
 export { createServer } from "./server.js";
-export { RulingsDb } from "./db.js";
+export { JudgmentsDb } from "./db.js";
 export type * from "./types.js";
 
 /**
- * Default entry point — runs the MCP server over stdio.
+ * MCP server entry point — stdio transport.
  *
- * Wire it into Claude Code with:
  *   claude mcp add sententim -- npx sententim-mcp
- *
- * Or into Claude Desktop's `claude_desktop_config.json`:
- *   "sententim": { "command": "npx", "args": ["sententim-mcp"] }
  */
 async function main(): Promise<void> {
   const { server } = createServer({
@@ -23,7 +19,6 @@ async function main(): Promise<void> {
   process.stderr.write("sententim · MCP server ready (stdio)\n");
 }
 
-// Only run main() when invoked directly — not when imported as a library.
 const isDirect =
   import.meta.url === `file://${process.argv[1]}` ||
   import.meta.url.endsWith(process.argv[1] ?? "");

@@ -1,76 +1,84 @@
 import { z } from "zod";
-import type { RulingsDb } from "../db.js";
+import type { JudgmentsDb } from "../db.js";
+import type { Judgment, JudgmentMatch, VerifyResult } from "../types.js";
+
+export const DISCLAIMER =
+  "Dane deterministyczne ze źródła publicznego. Zweryfikuj treść w źródle. Nie stanowi porady prawnej.";
 
 export const verifySignatureSchema = z.object({
-  citation: z
+  sygnatura: z
     .string()
     .min(1)
-    .describe(
-      "The case-law citation as written by the model — e.g. 'II CSK 123/22', 'C-123/22', 'ECLI:EU:C:2023:1'.",
-    ),
+    .describe("Sygnatura wyroku, np. 'II CSK 750/15'. Tolerujemy wielkość liter, spacje i kropki w skrótach."),
+  sad: z
+    .string()
+    .optional()
+    .describe("Opcjonalnie zawęża po nazwie sądu (substring, case-insensitive)."),
+  data: z
+    .string()
+    .optional()
+    .describe("Opcjonalnie zawęża po dokładnej dacie wydania w formacie ISO YYYY-MM-DD."),
 });
 
-export type VerifySignatureInput = z.infer<typeof verifySignatureSchema>;
+export type VerifySignatureInput = z.input<typeof verifySignatureSchema>;
 
 export const verifySignatureTool = {
   name: "verify_signature",
-  title: "Verify a case-law citation",
+  title: "Zweryfikuj istnienie wyroku",
   description: [
-    "Verify whether a Polish Supreme Court (SN) or CJEU case-law citation is real.",
-    "Returns the canonical record when found, or up to 3 fuzzy alternatives when not.",
-    "Use this BEFORE citing a ruling in your answer to prevent hallucinated case numbers.",
-    "Accepts signatures ('II CSK 123/22', 'C-123/22'), ECLIs, and informal variants.",
+    "Zwraca wyłącznie zweryfikowane fakty z lokalnej bazy polskich wyroków.",
+    "Jeśli wyrok nie istnieje w bazie → status: NOT_FOUND.",
+    "Jeśli ta sama sygnatura występuje w kilku sądach → status: AMBIGUOUS, wszyscy kandydaci.",
+    "NIE cytuj sygnatur, których to narzędzie nie potwierdziło.",
+    "Pola: sygnatura, sąd, instancja, data, typ sentencji, podstawa prawna, URL źródła, data pobrania.",
   ].join(" "),
   inputSchema: {
     type: "object",
     properties: {
-      citation: {
+      sygnatura: {
         type: "string",
-        description: verifySignatureSchema.shape.citation.description,
+        description: "Sygnatura wyroku, np. 'II CSK 750/15'.",
+      },
+      sad: {
+        type: "string",
+        description: "Opcjonalnie zawęża po nazwie sądu (substring).",
+      },
+      data: {
+        type: "string",
+        description: "Opcjonalnie zawęża po ISO dacie wydania YYYY-MM-DD.",
       },
     },
-    required: ["citation"],
+    required: ["sygnatura"],
   },
 } as const;
 
-export function runVerifySignature(db: RulingsDb, input: VerifySignatureInput) {
-  const { citation } = verifySignatureSchema.parse(input);
-  const result = db.verify(citation);
-
-  if (result.exists && result.ruling) {
-    const r = result.ruling;
-    return {
-      verdict: "VERIFIED" as const,
-      lookup_ms: result.tookMs,
-      ruling: {
-        id: r.id,
-        source: r.source,
-        ecli: r.ecli,
-        signature: r.signature,
-        court: r.court,
-        chamber: r.chamber,
-        date: r.date,
-        type: r.type,
-        summary: r.summary,
-        tags: r.tags,
-        legal_basis: r.legalBasis,
-        source_url: r.sourceUrl,
-      },
-    };
-  }
-
+function toMatch(j: Judgment): JudgmentMatch {
   return {
-    verdict: "NOT_FOUND" as const,
-    lookup_ms: result.tookMs,
-    message:
-      "No matching ruling found in the bundled SN/CJEU corpus. Do NOT cite this signature as fact. The suggestions below are the closest known signatures — verify whether the user meant one of them.",
-    suggestions: result.suggestions.map((s) => ({
-      signature: s.signature,
-      ecli: s.ecli,
-      court: s.court,
-      date: s.date,
-      summary: s.summary,
-      source_url: s.sourceUrl,
-    })),
+    sygnatura: j.sygnatura,
+    sad: j.sad,
+    instancja: j.instancja,
+    data_orzeczenia: j.data_orzeczenia,
+    sentencja_typ: j.sentencja_typ,
+    prawomocny: j.prawomocny,
+    uchylony_przez: j.uchylony_przez,
+    podstawa_prawna: j.podstawa_prawna,
+    zrodlo_url: j.zrodlo_url,
+    data_pobrania: j.data_pobrania,
   };
+}
+
+export function runVerifySignature(db: JudgmentsDb, input: VerifySignatureInput): VerifyResult {
+  const parsed = verifySignatureSchema.parse(input);
+  const candidates = db.findCandidates(parsed.sygnatura, {
+    sad: parsed.sad,
+    data: parsed.data,
+  });
+
+  if (candidates.length === 0) {
+    return { status: "NOT_FOUND", matches: [], disclaimer: DISCLAIMER };
+  }
+  if (candidates.length === 1) {
+    return { status: "FOUND", matches: [toMatch(candidates[0]!)], disclaimer: DISCLAIMER };
+  }
+  return { status: "AMBIGUOUS", matches: candidates.map(toMatch), disclaimer: DISCLAIMER };
 }

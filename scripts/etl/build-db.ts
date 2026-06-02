@@ -1,47 +1,39 @@
 /**
- * Build the bundled SQLite DB from the *.summarised.jsonl files.
+ * Build the bundled SQLite DB from staged JSONL.
  *
- * Inputs:  data/staging/sn.summarised.jsonl
- *          data/staging/cjeu.summarised.jsonl
- * Output:  data/rulings.db   (+ data/manifest.json mirror)
+ * Input:  data/staging/judgments.jsonl
+ * Output: data/judgments.db   +   data/manifest.json
  *
- * This is intentionally idempotent: it rebuilds the DB from scratch, runs
- * ANALYZE, populates the manifest, and writes a one-shot WAL-checkpoint
- * before producing the final, read-only artifact.
+ * Rebuilds from scratch every time so the published artefact is always
+ * reproducible from raw + parsers + schema.  No state survives between
+ * runs except the staged JSONLs.
  */
 
 import Database from "better-sqlite3";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { readJsonl } from "./lib/jsonl.js";
 import { DATA_DIR, DB_PATH, MANIFEST_PATH, SCHEMA_PATH, stagedJsonl } from "./lib/paths.js";
+import type { StagedJudgment } from "./normalize.js";
 
-interface SummarisedRow {
-  id: string;
-  source: "SN" | "CJEU";
-  ecli: string | null;
-  signature: string;
-  signatureNormalised: string;
-  court: string;
-  chamber: string | null;
-  date: string;
-  type: string;
-  language: string;
-  summary: string;
-  tags: string[];
-  legalBasis: Array<{ act: string; article: string }>;
-  sourceUrl: string;
-  sourceUpdatedAt: string | null;
+export interface BuildOptions {
+  pkgVersion: string;
+  source?: string;
+  legalDomain?: string;
+  seedQueryCount?: number;
 }
 
-export async function buildDatabase(pkgVersion: string): Promise<{
+export interface BuildResult {
   total: number;
-  sn: number;
-  cjeu: number;
-}> {
-  // Start fresh — the published DB is always reproducible from the staging files.
-  if (existsSync(DB_PATH)) unlinkSync(DB_PATH);
-  if (existsSync(`${DB_PATH}-wal`)) unlinkSync(`${DB_PATH}-wal`);
-  if (existsSync(`${DB_PATH}-shm`)) unlinkSync(`${DB_PATH}-shm`);
+  inserted: number;
+  collisions: number;
+}
+
+export async function buildDatabase(opts: BuildOptions): Promise<BuildResult> {
+  // Start fresh — the published DB is always reproducible.
+  for (const suffix of ["", "-wal", "-shm"]) {
+    const p = `${DB_PATH}${suffix}`;
+    if (existsSync(p)) unlinkSync(p);
+  }
 
   const db = new Database(DB_PATH);
   db.pragma("journal_mode = WAL");
@@ -49,66 +41,48 @@ export async function buildDatabase(pkgVersion: string): Promise<{
   db.exec(readFileSync(SCHEMA_PATH, "utf8"));
 
   const insert = db.prepare(`
-    INSERT INTO rulings (
-      id, source, ecli, signature, signature_normalised,
-      court, chamber, date, type, language,
-      summary, tags, legal_basis,
-      source_url, source_updated_at, ingested_at
+    INSERT INTO judgments (
+      sygnatura, sygnatura_norm, sad, instancja, data_orzeczenia,
+      sentencja_typ, prawomocny, uchylony_przez, podstawa_prawna,
+      zrodlo_url, data_pobrania, sha256
     ) VALUES (
-      @id, @source, @ecli, @signature, @signature_normalised,
-      @court, @chamber, @date, @type, @language,
-      @summary, @tags, @legal_basis,
-      @source_url, @source_updated_at, @ingested_at
+      @sygnatura, @sygnatura_norm, @sad, @instancja, @data_orzeczenia,
+      @sentencja_typ, @prawomocny, @uchylony_przez, @podstawa_prawna,
+      @zrodlo_url, @data_pobrania, @sha256
     )
-    ON CONFLICT(id) DO UPDATE SET
-      summary = excluded.summary,
-      tags = excluded.tags,
-      legal_basis = excluded.legal_basis,
-      source_url = excluded.source_url,
-      source_updated_at = excluded.source_updated_at,
-      ingested_at = excluded.ingested_at
+    ON CONFLICT(sygnatura_norm, sad, data_orzeczenia) DO UPDATE SET
+      sygnatura       = excluded.sygnatura,
+      sentencja_typ   = excluded.sentencja_typ,
+      podstawa_prawna = excluded.podstawa_prawna,
+      zrodlo_url      = excluded.zrodlo_url,
+      data_pobrania   = excluded.data_pobrania,
+      sha256          = excluded.sha256
   `);
 
   const now = new Date().toISOString();
   let total = 0;
-  let sn = 0;
-  let cjeu = 0;
-  let snLatest: string | null = null;
-  let cjeuLatest: string | null = null;
+  let inserted = 0;
+  let collisions = 0;
 
   const tx = db.transaction(async () => {
-    for (const source of ["sn", "cjeu"] as const) {
-      const file = stagedJsonl(source).replace(/\.jsonl$/, ".summarised.jsonl");
-      if (!existsSync(file)) continue;
-      for await (const row of readJsonl<SummarisedRow>(file)) {
-        if (!row.summary || row.summary.length < 20) continue;
-        insert.run({
-          id: row.id,
-          source: row.source,
-          ecli: row.ecli ?? null,
-          signature: row.signature,
-          signature_normalised: row.signatureNormalised,
-          court: row.court,
-          chamber: row.chamber ?? null,
-          date: row.date,
-          type: row.type,
-          language: row.language ?? "pl",
-          summary: row.summary,
-          tags: JSON.stringify(row.tags ?? []),
-          legal_basis: JSON.stringify(row.legalBasis ?? []),
-          source_url: row.sourceUrl,
-          source_updated_at: row.sourceUpdatedAt ?? null,
-          ingested_at: now,
-        });
-        total++;
-        if (row.source === "SN") {
-          sn++;
-          if (!snLatest || row.date > snLatest) snLatest = row.date;
-        } else {
-          cjeu++;
-          if (!cjeuLatest || row.date > cjeuLatest) cjeuLatest = row.date;
-        }
-      }
+    for await (const row of readJsonl<StagedJudgment>(stagedJsonl("judgments"))) {
+      total++;
+      const info = insert.run({
+        sygnatura: row.sygnatura,
+        sygnatura_norm: row.sygnatura_norm,
+        sad: row.sad,
+        instancja: row.instancja,
+        data_orzeczenia: row.data_orzeczenia,
+        sentencja_typ: row.sentencja_typ,
+        prawomocny: row.prawomocny,
+        uchylony_przez: row.uchylony_przez,
+        podstawa_prawna: JSON.stringify(row.podstawa_prawna ?? []),
+        zrodlo_url: row.zrodlo_url,
+        data_pobrania: row.data_pobrania,
+        sha256: row.sha256,
+      });
+      if (info.changes === 1) inserted++;
+      else collisions++;
     }
   });
   await tx();
@@ -116,19 +90,19 @@ export async function buildDatabase(pkgVersion: string): Promise<{
   const upsertManifest = db.prepare(
     "INSERT INTO manifest(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
   );
-  const manifest = {
-    version: pkgVersion,
+  const manifest: Record<string, string> = {
+    version: opts.pkgVersion,
     built_at: now,
     schema_version: "1",
-    total_rulings: String(total),
-    sn_count: String(sn),
-    cjeu_count: String(cjeu),
-    sn_latest_date: snLatest ?? "",
-    cjeu_latest_date: cjeuLatest ?? "",
+    total: String(inserted),
+    source: opts.source ?? "SAOS",
+    legal_domain: opts.legalDomain ?? "sankcja_kredytu_darmowego",
+    seed_query_count: String(opts.seedQueryCount ?? 0),
+    last_seed_at: now,
   };
   for (const [k, v] of Object.entries(manifest)) upsertManifest.run(k, v);
 
-  db.exec("INSERT INTO rulings_fts(rulings_fts) VALUES('optimize')");
+  db.exec("INSERT INTO judgments_fts(judgments_fts) VALUES('optimize')");
   db.exec("ANALYZE");
   db.pragma("wal_checkpoint(TRUNCATE)");
   db.pragma("optimize");
@@ -138,14 +112,13 @@ export async function buildDatabase(pkgVersion: string): Promise<{
     MANIFEST_PATH,
     `${JSON.stringify(
       {
-        version: pkgVersion,
+        version: opts.pkgVersion,
         builtAt: now,
         schemaVersion: 1,
-        totalRulings: total,
-        snCount: sn,
-        cjeuCount: cjeu,
-        snLatestDate: snLatest,
-        cjeuLatestDate: cjeuLatest,
+        total: inserted,
+        source: opts.source ?? "SAOS",
+        legalDomain: opts.legalDomain ?? "sankcja_kredytu_darmowego",
+        seedQueryCount: opts.seedQueryCount ?? 0,
         dataDir: DATA_DIR,
       },
       null,
@@ -153,5 +126,5 @@ export async function buildDatabase(pkgVersion: string): Promise<{
     )}\n`,
   );
 
-  return { total, sn, cjeu };
+  return { total, inserted, collisions };
 }

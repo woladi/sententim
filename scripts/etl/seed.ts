@@ -1,32 +1,38 @@
 /**
- * Local "cold start" seed.
+ * Cold-start seed — MVP-1 corpus.
  *
- *   pnpm etl:seed -- --max-sn=100 --max-cjeu=50 --since=2020-01-01
+ * Decision: union of two SAOS queries (user choice).
+ *   (a) legalBase = "art. 45 ustawy o kredycie konsumenckim"  (~195 hits)
+ *   (b) all       = "sankcja kredytu darmowego"               (~1254 hits)
  *
- * Designed to be run on the developer's machine — full SAOS SN historical
- * dump (~38k rulings, ~5–15 min) + recent CJEU window.  The output
- * (`data/rulings.db`) is committed and later distributed inside the npm
- * package.
+ * After dedup by SAOS `id` we expect ~1300 unique judgments.
+ *
+ *   pnpm etl:seed                       # full union (~15-20 min)
+ *   pnpm etl:seed --max=50              # smoke test
+ *   pnpm etl:seed --skip-fetch          # re-normalise from existing raw JSONLs
+ *
+ * No ANTHROPIC_API_KEY required — zero LLM in this pipeline.
  */
 
 import { performance } from "node:perf_hooks";
 import { buildDatabase } from "./build-db.js";
-import { ensureDir, RAW_DIR, STAGING_DIR } from "./lib/paths.js";
-import { normaliseCjeu, normaliseSaos } from "./normalize.js";
-import { fetchCjeuJudgments } from "./sources/cjeu.js";
-import { fetchSnJudgments } from "./sources/saos.js";
-import { summarise } from "./summarize.js";
+import { ensureDir, rawJsonl, RAW_DIR, STAGING_DIR } from "./lib/paths.js";
+import { normaliseSaos, summariseNormalisation } from "./normalize.js";
+import { fetchSaosJudgments } from "./sources/saos.js";
+
+const QUERY_LEGAL_BASE = "art. 45 ustawy o kredycie konsumenckim";
+const QUERY_ALL = "sankcja kredytu darmowego";
 
 function flag(name: string): string | undefined {
   const m = process.argv.find((a) => a.startsWith(`--${name}=`));
-  return m ? m.slice(name.length + 3) : undefined;
+  if (m) return m.slice(name.length + 3);
+  if (process.argv.includes(`--${name}`)) return "true";
+  return undefined;
 }
 function flagN(name: string): number | undefined {
   const v = flag(name);
-  return v ? Number(v) : undefined;
+  return v && v !== "true" ? Number(v) : undefined;
 }
-const SKIP_SAOS = process.argv.includes("--no-sn");
-const SKIP_CJEU = process.argv.includes("--no-cjeu");
 
 async function step<T>(label: string, fn: () => Promise<T>): Promise<T> {
   const t = performance.now();
@@ -42,38 +48,46 @@ async function main(): Promise<void> {
   ensureDir(STAGING_DIR);
 
   const pkgVersion = flag("version") ?? process.env.npm_package_version ?? "0.1.0";
+  const maxItems = flagN("max");
+  const skipFetch = flag("skip-fetch") === "true";
 
-  if (!SKIP_SAOS) {
-    await step("SAOS · fetch SN judgments", () =>
-      fetchSnJudgments({
-        maxItems: flagN("max-sn"),
-        judgmentDateFrom: flag("since"),
-        judgmentDateTo: flag("until"),
+  if (!skipFetch) {
+    await step(`SAOS · legalBase="${QUERY_LEGAL_BASE}"`, () =>
+      fetchSaosJudgments({
+        courtType: "COMMON",
+        legalBase: QUERY_LEGAL_BASE,
+        maxItems,
+        outFile: rawJsonl("saos", "legalBase"),
       }),
     );
-    await step("SAOS · normalise", normaliseSaos);
-    await step("SAOS · summarise", () =>
-      summarise({ source: "sn", maxItems: flagN("max-sn"), skipExisting: true }),
-    );
-  }
-
-  if (!SKIP_CJEU) {
-    await step("CELLAR · fetch CJEU judgments", () =>
-      fetchCjeuJudgments({
-        since: flag("since") ?? "2020-01-01",
-        until: flag("until"),
-        maxItems: flagN("max-cjeu"),
+    await step(`SAOS · all="${QUERY_ALL}"`, () =>
+      fetchSaosJudgments({
+        all: QUERY_ALL,
+        maxItems,
+        outFile: rawJsonl("saos", "all"),
       }),
     );
-    await step("CELLAR · normalise", normaliseCjeu);
-    await step("CELLAR · summarise", () =>
-      summarise({ source: "cjeu", maxItems: flagN("max-cjeu"), skipExisting: true }),
-    );
+  } else {
+    process.stderr.write("▸ skipping fetch (--skip-fetch)\n");
   }
 
-  const built = await step("Build DB", () => buildDatabase(pkgVersion));
+  const norm = await step("Normalise + parse", () =>
+    normaliseSaos({
+      inputs: [rawJsonl("saos", "legalBase"), rawJsonl("saos", "all")],
+    }),
+  );
+  process.stderr.write(await summariseNormalisation(norm));
+
+  const built = await step("Build DB", () =>
+    buildDatabase({
+      pkgVersion,
+      source: "SAOS",
+      legalDomain: "sankcja_kredytu_darmowego",
+      seedQueryCount: 2,
+    }),
+  );
   process.stderr.write(
-    `\nSeeded ${built.total} rulings · SN ${built.sn} · CJEU ${built.cjeu}\n`,
+    `\nSeeded ${built.inserted} judgments (${built.collisions} collisions absorbed, ${built.total} staged)\n`,
   );
 }
 

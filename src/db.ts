@@ -3,302 +3,179 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { normaliseSignature } from "./normalize.js";
-import type {
-  Manifest,
-  Ruling,
-  RulingSource,
-  RulingSummary,
-  SearchOptions,
-  VerifyResult,
-} from "./types.js";
+import type { Judgment, Manifest } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-/**
- * Resolve the bundled DB path.
- *
- * In dev, this is repo-root/data/rulings.db.
- * When the package is installed via npm, this is `<pkg>/data/rulings.db`,
- * because the `data/` folder is included via the package.json `files` field.
- */
 function defaultDbPath(): string {
   const candidates = [
     process.env.SENTENTIM_DB_PATH,
-    join(__dirname, "..", "data", "rulings.db"),
-    join(__dirname, "..", "..", "data", "rulings.db"),
-    resolve(process.cwd(), "data", "rulings.db"),
+    join(__dirname, "..", "data", "judgments.db"),
+    join(__dirname, "..", "..", "data", "judgments.db"),
+    resolve(process.cwd(), "data", "judgments.db"),
   ].filter((p): p is string => Boolean(p));
 
   for (const candidate of candidates) {
     if (existsSync(candidate)) return candidate;
   }
-  // Return the most likely path even if missing — open() will surface the error.
   return candidates[1] ?? candidates[0]!;
 }
 
-type RulingRow = {
-  id: string;
-  source: RulingSource;
-  ecli: string | null;
-  signature: string;
-  signature_normalised: string;
-  court: string;
-  chamber: string | null;
-  date: string;
-  type: Ruling["type"];
-  language: string;
-  summary: string;
-  tags: string;
-  legal_basis: string;
-  source_url: string;
-  source_updated_at: string | null;
-  ingested_at: string;
-};
+interface JudgmentRow {
+  id: number;
+  sygnatura: string;
+  sygnatura_norm: string;
+  sad: string;
+  instancja: Judgment["instancja"];
+  data_orzeczenia: string;
+  sentencja_typ: Judgment["sentencja_typ"];
+  prawomocny: 0 | 1 | null;
+  uchylony_przez: string | null;
+  podstawa_prawna: string;
+  zrodlo_url: string;
+  data_pobrania: string;
+  sha256: string;
+}
 
-function rowToRuling(row: RulingRow): Ruling {
+function rowToJudgment(row: JudgmentRow): Judgment {
   return {
-    id: row.id,
-    source: row.source,
-    ecli: row.ecli,
-    signature: row.signature,
-    signatureNormalised: row.signature_normalised,
-    court: row.court,
-    chamber: row.chamber,
-    date: row.date,
-    type: row.type,
-    language: row.language,
-    summary: row.summary,
-    tags: safeJson<string[]>(row.tags, []),
-    legalBasis: safeJson<Ruling["legalBasis"]>(row.legal_basis, []),
-    sourceUrl: row.source_url,
-    sourceUpdatedAt: row.source_updated_at,
-    ingestedAt: row.ingested_at,
+    ...row,
+    podstawa_prawna: safeJsonArray(row.podstawa_prawna),
   };
 }
 
-function rowToSummary(row: RulingRow): RulingSummary {
-  return {
-    id: row.id,
-    source: row.source,
-    ecli: row.ecli,
-    signature: row.signature,
-    court: row.court,
-    chamber: row.chamber,
-    date: row.date,
-    summary: row.summary,
-    tags: safeJson<string[]>(row.tags, []),
-    sourceUrl: row.source_url,
-  };
-}
-
-function safeJson<T>(input: string, fallback: T): T {
+function safeJsonArray(input: string): string[] {
   try {
-    return JSON.parse(input) as T;
+    const v = JSON.parse(input);
+    return Array.isArray(v) ? v.map(String) : [];
   } catch {
-    return fallback;
+    return [];
   }
 }
 
-export interface RulingsDbOptions {
-  /** Override the bundled DB path. Falls back to env or repo path. */
+export interface JudgmentsDbOptions {
+  /** Override the bundled DB path. */
   path?: string;
-  /** Open in read-write mode (ETL only). Defaults to read-only. */
+  /**
+   * Open in read-write mode (ETL only). Defaults to read-only.
+   * Even when `false`, runtime callers further enforce `PRAGMA query_only=1`.
+   */
   readwrite?: boolean;
 }
 
+export interface FindCandidatesOptions {
+  /** Substring match on the court name (case-insensitive). */
+  sad?: string;
+  /** Exact ISO date match. */
+  data?: string;
+}
+
 /**
- * Thin, synchronous wrapper around the bundled SQLite ruling database.
- * Every method is designed for sub-10ms execution against a warm page cache.
+ * Read-only-by-default wrapper around the bundled corpus.
+ *
+ *   const db = new JudgmentsDb();
+ *   db.findCandidates("II CSK 750/15");
+ *   //  → 0  → caller should report NOT_FOUND
+ *   //  → 1  → FOUND
+ *   //  → ≥2 → AMBIGUOUS
  */
-export class RulingsDb {
+export class JudgmentsDb {
   readonly path: string;
   readonly db: Db;
   #manifest?: Manifest;
 
-  // Prepared statements — built once, reused on every call.
-  readonly #findByEcli;
-  readonly #findById;
-  readonly #findBySignatureNormalised;
-  readonly #fuzzyByPrefix;
-  readonly #searchByTopic;
-  readonly #latestBySource;
-  readonly #countBySource;
+  readonly #findByNorm;
+  readonly #findByNormAndSad;
+  readonly #findByNormAndData;
+  readonly #findByNormAndSadAndData;
   readonly #manifestStmt;
+  readonly #countStmt;
 
-  constructor(opts: RulingsDbOptions = {}) {
+  constructor(opts: JudgmentsDbOptions = {}) {
     this.path = opts.path ?? defaultDbPath();
     const readonly = !opts.readwrite;
     this.db = new Database(this.path, {
       readonly,
       fileMustExist: readonly,
     });
+
+    // Runtime guard — query_only stays on regardless of the open mode flag.
+    // This makes the runtime path provably side-effect-free.
+    if (readonly) {
+      this.db.pragma("query_only = 1");
+    }
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("synchronous = NORMAL");
     this.db.pragma("temp_store = MEMORY");
-    this.db.pragma("mmap_size = 268435456"); // 256 MB mmap — DB is read-only
-    this.db.pragma("cache_size = -64000"); // 64 MB page cache
+    this.db.pragma("mmap_size = 268435456");
+    this.db.pragma("cache_size = -64000");
 
-    this.#findByEcli = this.db.prepare<[string]>(
-      "SELECT * FROM rulings WHERE ecli = ? LIMIT 1",
+    this.#findByNorm = this.db.prepare<[string]>(
+      "SELECT * FROM judgments WHERE sygnatura_norm = ? ORDER BY data_orzeczenia DESC LIMIT 50",
     );
-    this.#findById = this.db.prepare<[string]>(
-      "SELECT * FROM rulings WHERE id = ? LIMIT 1",
+    this.#findByNormAndSad = this.db.prepare<[string, string]>(
+      "SELECT * FROM judgments WHERE sygnatura_norm = ? AND sad LIKE ? ORDER BY data_orzeczenia DESC LIMIT 50",
     );
-    this.#findBySignatureNormalised = this.db.prepare<[string]>(
-      "SELECT * FROM rulings WHERE signature_normalised = ? LIMIT 1",
+    this.#findByNormAndData = this.db.prepare<[string, string]>(
+      "SELECT * FROM judgments WHERE sygnatura_norm = ? AND data_orzeczenia = ? LIMIT 50",
     );
-    this.#fuzzyByPrefix = this.db.prepare<[string, string, number]>(
-      "SELECT * FROM rulings WHERE signature_normalised LIKE ? OR signature LIKE ? LIMIT ?",
+    this.#findByNormAndSadAndData = this.db.prepare<[string, string, string]>(
+      "SELECT * FROM judgments WHERE sygnatura_norm = ? AND sad LIKE ? AND data_orzeczenia = ? LIMIT 50",
     );
-    this.#searchByTopic = this.db.prepare<{
-      q: string;
-      source: string | null;
-      limit: number;
-      offset: number;
-    }>(
-      `SELECT r.* FROM rulings_fts f
-       JOIN rulings r ON r.rowid = f.rowid
-       WHERE rulings_fts MATCH :q
-         AND (:source IS NULL OR r.source = :source)
-       ORDER BY rank
-       LIMIT :limit OFFSET :offset`,
-    );
-    this.#latestBySource = this.db.prepare<[string, number]>(
-      "SELECT * FROM rulings WHERE source = ? ORDER BY date DESC LIMIT ?",
-    );
-    this.#countBySource = this.db.prepare<[string]>(
-      "SELECT COUNT(*) AS n FROM rulings WHERE source = ?",
-    );
+
     this.#manifestStmt = this.db.prepare("SELECT key, value FROM manifest");
+    this.#countStmt = this.db.prepare("SELECT COUNT(*) AS n FROM judgments");
   }
 
-  /** Build metadata (cached after first read). */
   manifest(): Manifest {
     if (this.#manifest) return this.#manifest;
     const rows = this.#manifestStmt.all() as Array<{ key: string; value: string }>;
     const map = new Map(rows.map((r) => [r.key, r.value] as const));
     this.#manifest = {
       version: map.get("version") ?? "0.0.0",
-      builtAt: map.get("built_at") ?? new Date(0).toISOString(),
-      schemaVersion: Number(map.get("schema_version") ?? 1),
-      totalRulings: Number(map.get("total_rulings") ?? 0),
-      snCount: Number(map.get("sn_count") ?? 0),
-      cjeuCount: Number(map.get("cjeu_count") ?? 0),
-      snLatestDate: map.get("sn_latest_date") ?? null,
-      cjeuLatestDate: map.get("cjeu_latest_date") ?? null,
+      built_at: map.get("built_at") ?? new Date(0).toISOString(),
+      schema_version: Number(map.get("schema_version") ?? 1),
+      total: Number(map.get("total") ?? 0),
+      source: map.get("source") ?? "",
+      legal_domain: map.get("legal_domain") ?? "",
+      seed_query_count: Number(map.get("seed_query_count") ?? 0),
+      last_seed_at: map.get("last_seed_at") ?? "",
     };
     return this.#manifest;
   }
 
-  /** Exact ECLI lookup. */
-  findByEcli(ecli: string): Ruling | null {
-    const row = this.#findByEcli.get(ecli.trim()) as RulingRow | undefined;
-    return row ? rowToRuling(row) : null;
-  }
-
-  /** Lookup by canonical internal id. */
-  findById(id: string): Ruling | null {
-    const row = this.#findById.get(id) as RulingRow | undefined;
-    return row ? rowToRuling(row) : null;
+  count(): number {
+    return (this.#countStmt.get() as { n: number }).n;
   }
 
   /**
-   * Lookup by signature with the normalisation we promise: case + diacritic +
-   * separator insensitive.  "II CSK 123/22" === "ii  csk 123 / 22".
+   * Return every judgment matching the (sygnatura, sad?, data?) tuple.
+   *
+   *   0 results → caller reports NOT_FOUND
+   *   1 result  → caller reports FOUND
+   *   N results → caller reports AMBIGUOUS and returns the full list
+   *
+   * No heuristic ranking, no implicit picking. The DB never invents.
    */
-  findBySignature(signature: string): Ruling | null {
-    const normalised = normaliseSignature(signature);
-    const row = this.#findBySignatureNormalised.get(normalised) as RulingRow | undefined;
-    return row ? rowToRuling(row) : null;
-  }
+  findCandidates(sygnatura: string, opts: FindCandidatesOptions = {}): Judgment[] {
+    const norm = normaliseSignature(sygnatura);
+    const sadLike = opts.sad?.trim() ? `%${opts.sad.trim()}%` : null;
+    const data = opts.data?.trim() || null;
 
-  /**
-   * Verify a citation. Returns exact hit + ranked fuzzy alternatives so the
-   * caller LLM can decide whether the citation is real or hallucinated.
-   */
-  verify(citation: string): VerifyResult {
-    const t0 = process.hrtime.bigint();
-    const trimmed = citation.trim();
-
-    // Try ECLI first when the input looks like one
-    if (trimmed.toUpperCase().startsWith("ECLI:")) {
-      const exact = this.findByEcli(trimmed);
-      if (exact) {
-        return finish(t0, { exists: true, ruling: exact, suggestions: [] });
-      }
+    let rows: JudgmentRow[];
+    if (sadLike && data) {
+      rows = this.#findByNormAndSadAndData.all(norm, sadLike, data) as JudgmentRow[];
+    } else if (sadLike) {
+      rows = this.#findByNormAndSad.all(norm, sadLike) as JudgmentRow[];
+    } else if (data) {
+      rows = this.#findByNormAndData.all(norm, data) as JudgmentRow[];
+    } else {
+      rows = this.#findByNorm.all(norm) as JudgmentRow[];
     }
-
-    const exact = this.findBySignature(trimmed);
-    if (exact) {
-      return finish(t0, { exists: true, ruling: exact, suggestions: [] });
-    }
-
-    // Fuzzy fallback — prefix match on the normalised form
-    const normalised = normaliseSignature(trimmed);
-    const prefix = normalised.slice(0, Math.max(3, Math.floor(normalised.length * 0.7)));
-    const rows = this.#fuzzyByPrefix.all(`${prefix}%`, `${trimmed}%`, 3) as RulingRow[];
-
-    return finish(t0, {
-      exists: false,
-      ruling: null,
-      suggestions: rows.map(rowToSummary),
-    });
-  }
-
-  /**
-   * Full-text search across signature, summary and tags.
-   * Query syntax is FTS5 — the caller can pass `"art. 415" AND szkoda`.
-   */
-  searchByTopic(query: string, opts: SearchOptions = {}): RulingSummary[] {
-    const fts = sanitiseFtsQuery(query);
-    if (!fts) return [];
-    const rows = this.#searchByTopic.all({
-      q: fts,
-      source: opts.source ?? null,
-      limit: Math.min(opts.limit ?? 20, 100),
-      offset: Math.max(opts.offset ?? 0, 0),
-    }) as RulingRow[];
-    return rows.map(rowToSummary);
-  }
-
-  latest(source: RulingSource, limit = 10): RulingSummary[] {
-    const rows = this.#latestBySource.all(source, Math.min(limit, 100)) as RulingRow[];
-    return rows.map(rowToSummary);
-  }
-
-  countBySource(source: RulingSource): number {
-    const row = this.#countBySource.get(source) as { n: number } | undefined;
-    return row?.n ?? 0;
+    return rows.map(rowToJudgment);
   }
 
   close(): void {
     this.db.close();
   }
-}
-
-function finish(
-  t0: bigint,
-  result: Omit<VerifyResult, "tookMs">,
-): VerifyResult {
-  const ns = Number(process.hrtime.bigint() - t0);
-  return { ...result, tookMs: Math.round((ns / 1_000_000) * 100) / 100 };
-}
-
-/**
- * FTS5 reserves a handful of characters that, when unescaped, would either
- * blow up the query or change its semantics. We strip them and wrap the
- * remaining tokens in implicit AND.
- */
-function sanitiseFtsQuery(input: string): string {
-  const cleaned = input
-    .replace(/["()\\]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (!cleaned) return "";
-  // Quote each token so e.g. "art." doesn't become a column-name reference
-  return cleaned
-    .split(" ")
-    .filter((t) => t.length >= 2)
-    .map((t) => `"${t}"`)
-    .join(" ");
 }

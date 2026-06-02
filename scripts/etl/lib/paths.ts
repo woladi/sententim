@@ -8,7 +8,7 @@ export const DATA_DIR = join(REPO_ROOT, "data");
 export const SEED_DIR = join(DATA_DIR, "seed");
 export const RAW_DIR = join(DATA_DIR, "raw");
 export const STAGING_DIR = join(DATA_DIR, "staging");
-export const DB_PATH = join(DATA_DIR, "rulings.db");
+export const DB_PATH = join(DATA_DIR, "judgments.db");
 export const MANIFEST_PATH = join(DATA_DIR, "manifest.json");
 export const SCHEMA_PATH = join(DATA_DIR, "schema.sql");
 
@@ -22,7 +22,7 @@ export function rawJsonl(source: "saos" | "cjeu", suffix = ""): string {
   return join(RAW_DIR, `${source}${tag}.jsonl`);
 }
 
-export function stagedJsonl(source: "sn" | "cjeu"): string {
+export function stagedJsonl(name: "judgments" | "cjeu"): string {
   ensureDir(STAGING_DIR);
-  return join(STAGING_DIR, `${source}.jsonl`);
+  return join(STAGING_DIR, `${name}.jsonl`);
 }

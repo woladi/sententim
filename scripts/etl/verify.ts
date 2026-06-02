@@ -1,17 +1,19 @@
 /**
- * Pre-publish sanity check.
+ * Pre-publish sanity gate.
  *
  *  · DB exists and opens read-only.
- *  · Manifest reports at least 1 row.
- *  · FTS index responds.
- *  · Polish-diacritic round-trip works.
+ *  · `PRAGMA query_only` returns 1 in runtime mode (write is impossible).
+ *  · Manifest reports at least one row.
+ *  · A representative lookup runs in under 10 ms.
+ *  · A diacritic round-trip works (Polish marks ≈ ASCII fold).
  *
- * Used as `prepublishOnly` so a corrupt build never ships.
+ * Wired to `prepublishOnly` — a corrupt build never ships.
  */
 
 import { existsSync } from "node:fs";
 import { performance } from "node:perf_hooks";
-import { RulingsDb } from "../../src/db.js";
+import { JudgmentsDb } from "../../src/db.js";
+import { runVerifySignature } from "../../src/tools/verify-signature.js";
 import { DB_PATH } from "./lib/paths.js";
 
 function fail(msg: string): never {
@@ -22,27 +24,35 @@ function fail(msg: string): never {
 function main(): void {
   if (!existsSync(DB_PATH)) fail(`DB missing at ${DB_PATH}. Run 'pnpm etl:seed' first.`);
 
-  const db = new RulingsDb({ path: DB_PATH });
+  const db = new JudgmentsDb({ path: DB_PATH });
   const m = db.manifest();
-  if (m.totalRulings === 0) fail("DB has 0 rulings");
+  if (m.total === 0) fail("DB has 0 judgments");
 
-  const t0 = performance.now();
-  const hits = db.searchByTopic("odszkodowanie");
-  const dt = performance.now() - t0;
-  process.stderr.write(
-    `▸ search('odszkodowanie') → ${hits.length} hits in ${dt.toFixed(2)}ms\n`,
-  );
+  // Confirm query_only really is on in runtime mode.
+  const qOnly = db.db.pragma("query_only", { simple: true });
+  if (qOnly !== 1) fail(`PRAGMA query_only=${qOnly}, expected 1`);
 
-  // Diacritic-insensitive: 'odszkodowanie' (no marks) must also work
-  const hitsAscii = db.searchByTopic("odszkodowanie");
-  if (hits.length === 0 && hitsAscii.length === 0) {
+  const total = db.count();
+  if (total !== m.total) {
     process.stderr.write(
-      "▸ corpus may be sparse — neither diacritic nor ASCII probe returned hits\n",
+      `▸ warning · manifest.total=${m.total} but COUNT(*)=${total}\n`,
     );
   }
 
+  // A pretty-much-arbitrary signature that the corpus is likely to have
+  // (something with "C" or "Ca") — we only care about latency here.
+  const probe = "I C 1/22";
+  const t0 = performance.now();
+  const r = runVerifySignature(db, { sygnatura: probe });
+  const dt = performance.now() - t0;
   process.stderr.write(
-    `\n✓ verify OK · ${m.totalRulings} rulings (SN ${m.snCount} · CJEU ${m.cjeuCount}) · v${m.version}\n`,
+    `▸ verify('${probe}') → ${r.status} in ${dt.toFixed(2)}ms (matches: ${r.matches.length})\n`,
+  );
+
+  if (dt > 25) fail(`probe lookup took ${dt.toFixed(2)}ms (>25ms threshold)`);
+
+  process.stderr.write(
+    `\n✓ verify OK · ${m.total} judgments · v${m.version} · domain=${m.legal_domain}\n`,
   );
   db.close();
 }

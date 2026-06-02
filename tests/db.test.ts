@@ -1,16 +1,15 @@
 /**
  * End-to-end DB test: build a tiny fixture DB in-memory and exercise every
- * RulingsDb method.  Validates the SQL we ship — including the FTS5
- * unicode61 + remove_diacritics tokenizer behaviour with Polish marks.
+ * JudgmentsDb method. Validates the SQL we ship + the FTS5 tokenizer.
  */
 
 import Database from "better-sqlite3";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { RulingsDb } from "../src/db.js";
-import { buildRulingId, normaliseSignature } from "../src/normalize.js";
+import { JudgmentsDb } from "../src/db.js";
+import { normaliseSignature } from "../src/normalize.js";
 
 const SCHEMA = readFileSync(join(import.meta.dirname, "..", "data", "schema.sql"), "utf8");
 
@@ -19,153 +18,147 @@ let dbPath: string;
 
 const SAMPLES = [
   {
-    id: buildRulingId("SN", "II CSK 123/22"),
-    source: "SN" as const,
-    ecli: null,
-    signature: "II CSK 123/22",
-    signature_normalised: normaliseSignature("II CSK 123/22"),
-    court: "Sąd Najwyższy",
-    chamber: "Izba Cywilna",
-    date: "2022-05-10",
-    type: "wyrok",
-    language: "pl",
-    summary:
-      "Sprawa dotyczyła zakresu odpowiedzialności deliktowej za szkodę wyrządzoną przez ruch przedsiębiorstwa. Sąd Najwyższy uznał, że art. 435 k.c. obejmuje również szkody pośrednie wynikające z normalnego ryzyka działalności.",
-    tags: JSON.stringify(["odpowiedzialność deliktowa", "art. 435 k.c.", "szkoda pośrednia"]),
-    legal_basis: JSON.stringify([{ act: "kc", article: "435" }]),
-    source_url: "https://www.saos.org.pl/judgments/1",
-    source_updated_at: null,
-    ingested_at: "2025-01-01T00:00:00Z",
+    sygnatura: "II CSK 750/15",
+    sygnatura_norm: normaliseSignature("II CSK 750/15"),
+    sad: "Sąd Najwyższy",
+    instancja: "SN",
+    data_orzeczenia: "2016-05-10",
+    sentencja_typ: "oddala",
+    prawomocny: 1,
+    uchylony_przez: null,
+    podstawa_prawna: JSON.stringify(["art. 45 ukk"]),
+    zrodlo_url: "https://www.saos.org.pl/judgments/100001",
+    data_pobrania: "2025-01-01T00:00:00Z",
+    sha256: "a".repeat(64),
+  },
+  // Same signature, different court — the AMBIGUOUS case
+  {
+    sygnatura: "I C 822/22",
+    sygnatura_norm: normaliseSignature("I C 822/22"),
+    sad: "Sąd Rejonowy w Olsztynie",
+    instancja: "SR",
+    data_orzeczenia: "2022-09-15",
+    sentencja_typ: "uwzglednia",
+    prawomocny: null,
+    uchylony_przez: null,
+    podstawa_prawna: JSON.stringify(["art. 45 ukk", "art. 75c pr.bank"]),
+    zrodlo_url: "https://www.saos.org.pl/judgments/200001",
+    data_pobrania: "2025-01-01T00:00:00Z",
+    sha256: "b".repeat(64),
   },
   {
-    id: buildRulingId("CJEU", "C-311/18"),
-    source: "CJEU" as const,
-    ecli: "ECLI:EU:C:2020:559",
-    signature: "C-311/18",
-    signature_normalised: normaliseSignature("C-311/18"),
-    court: "Trybunał Sprawiedliwości Unii Europejskiej",
-    chamber: "Wielka Izba",
-    date: "2020-07-16",
-    type: "judgment",
-    language: "pl",
-    summary:
-      "Sprawa Schrems II dotyczyła ważności decyzji o adekwatności Tarczy Prywatności UE–USA oraz standardowych klauzul umownych. Trybunał stwierdził nieważność decyzji 2016/1250 i potwierdził wymóg dodatkowych zabezpieczeń przy korzystaniu ze standardowych klauzul.",
-    tags: JSON.stringify(["RODO", "ochrona danych", "transfer danych", "tarcza prywatności"]),
-    legal_basis: JSON.stringify([{ act: "rodo", article: "46" }]),
-    source_url: "https://eur-lex.europa.eu/legal-content/PL/TXT/?uri=CELEX%3A62018CJ0311",
-    source_updated_at: null,
-    ingested_at: "2025-01-01T00:00:00Z",
+    sygnatura: "I C 822/22",
+    sygnatura_norm: normaliseSignature("I C 822/22"),
+    sad: "Sąd Rejonowy w Warszawie",
+    instancja: "SR",
+    data_orzeczenia: "2022-11-08",
+    sentencja_typ: "oddala",
+    prawomocny: null,
+    uchylony_przez: null,
+    podstawa_prawna: JSON.stringify(["art. 45 ukk"]),
+    zrodlo_url: "https://www.saos.org.pl/judgments/200002",
+    data_pobrania: "2025-01-01T00:00:00Z",
+    sha256: "c".repeat(64),
   },
 ];
 
 beforeAll(() => {
   tmpDir = mkdtempSync(join(tmpdir(), "sententim-test-"));
-  dbPath = join(tmpDir, "rulings.db");
+  dbPath = join(tmpDir, "judgments.db");
 
   const seedDb = new Database(dbPath);
   seedDb.exec(SCHEMA);
-  const insert = seedDb.prepare(`INSERT INTO rulings (
-    id, source, ecli, signature, signature_normalised, court, chamber,
-    date, type, language, summary, tags, legal_basis, source_url,
-    source_updated_at, ingested_at
+  const insert = seedDb.prepare(`INSERT INTO judgments (
+    sygnatura, sygnatura_norm, sad, instancja, data_orzeczenia,
+    sentencja_typ, prawomocny, uchylony_przez, podstawa_prawna,
+    zrodlo_url, data_pobrania, sha256
   ) VALUES (
-    @id, @source, @ecli, @signature, @signature_normalised, @court, @chamber,
-    @date, @type, @language, @summary, @tags, @legal_basis, @source_url,
-    @source_updated_at, @ingested_at
+    @sygnatura, @sygnatura_norm, @sad, @instancja, @data_orzeczenia,
+    @sentencja_typ, @prawomocny, @uchylony_przez, @podstawa_prawna,
+    @zrodlo_url, @data_pobrania, @sha256
   )`);
-  for (const r of SAMPLES) insert.run(r);
+  for (const s of SAMPLES) insert.run(s);
 
   const manifest = seedDb.prepare("INSERT INTO manifest(key, value) VALUES (?, ?)");
   for (const [k, v] of Object.entries({
     version: "0.0.0-test",
     built_at: "2025-01-01T00:00:00Z",
     schema_version: "1",
-    total_rulings: "2",
-    sn_count: "1",
-    cjeu_count: "1",
-    sn_latest_date: "2022-05-10",
-    cjeu_latest_date: "2020-07-16",
+    total: String(SAMPLES.length),
+    source: "SAOS",
+    legal_domain: "test",
+    seed_query_count: "2",
+    last_seed_at: "2025-01-01T00:00:00Z",
   }))
     manifest.run(k, v);
   seedDb.close();
-
-  // Sanity: write expected DB path so RulingsDb fallback can find it
-  writeFileSync(join(tmpDir, "marker.txt"), "ok");
 });
 
 afterAll(() => {
   rmSync(tmpDir, { recursive: true, force: true });
 });
 
-describe("RulingsDb", () => {
+describe("JudgmentsDb", () => {
+  it("opens read-only with query_only=1", () => {
+    const db = new JudgmentsDb({ path: dbPath });
+    const qo = db.db.pragma("query_only", { simple: true });
+    expect(qo).toBe(1);
+    db.close();
+  });
+
   it("reports manifest", () => {
-    const db = new RulingsDb({ path: dbPath });
+    const db = new JudgmentsDb({ path: dbPath });
     const m = db.manifest();
-    expect(m.totalRulings).toBe(2);
-    expect(m.snCount).toBe(1);
-    expect(m.cjeuCount).toBe(1);
+    expect(m.total).toBe(3);
+    expect(m.source).toBe("SAOS");
+    expect(m.legal_domain).toBe("test");
     db.close();
   });
 
-  it("finds by exact signature", () => {
-    const db = new RulingsDb({ path: dbPath });
-    const r = db.findBySignature("II CSK 123/22");
-    expect(r).not.toBeNull();
-    expect(r?.source).toBe("SN");
+  it("finds exactly one for unique signature", () => {
+    const db = new JudgmentsDb({ path: dbPath });
+    const r = db.findCandidates("II CSK 750/15");
+    expect(r).toHaveLength(1);
+    expect(r[0]?.sad).toBe("Sąd Najwyższy");
+    expect(r[0]?.podstawa_prawna).toEqual(["art. 45 ukk"]);
     db.close();
   });
 
-  it("finds by sloppy signature (case, whitespace, slashes)", () => {
-    const db = new RulingsDb({ path: dbPath });
-    expect(db.findBySignature("ii csk 123 / 22")?.source).toBe("SN");
+  it("returns all candidates for ambiguous signature", () => {
+    const db = new JudgmentsDb({ path: dbPath });
+    const r = db.findCandidates("I C 822/22");
+    expect(r).toHaveLength(2);
+    const sady = new Set(r.map((x) => x.sad));
+    expect(sady).toEqual(new Set(["Sąd Rejonowy w Olsztynie", "Sąd Rejonowy w Warszawie"]));
     db.close();
   });
 
-  it("finds by ECLI", () => {
-    const db = new RulingsDb({ path: dbPath });
-    expect(db.findByEcli("ECLI:EU:C:2020:559")?.source).toBe("CJEU");
+  it("narrows by court substring", () => {
+    const db = new JudgmentsDb({ path: dbPath });
+    const r = db.findCandidates("I C 822/22", { sad: "Olsztyn" });
+    expect(r).toHaveLength(1);
+    expect(r[0]?.sad).toContain("Olsztyn");
     db.close();
   });
 
-  it("verify() returns exists=true for real signatures", () => {
-    const db = new RulingsDb({ path: dbPath });
-    const r = db.verify("II CSK 123/22");
-    expect(r.exists).toBe(true);
-    expect(r.ruling?.signature).toBe("II CSK 123/22");
-    expect(r.tookMs).toBeLessThan(50);
+  it("narrows by exact date", () => {
+    const db = new JudgmentsDb({ path: dbPath });
+    const r = db.findCandidates("I C 822/22", { data: "2022-11-08" });
+    expect(r).toHaveLength(1);
+    expect(r[0]?.sad).toContain("Warszawie");
     db.close();
   });
 
-  it("verify() returns fuzzy suggestions for hallucinated signatures", () => {
-    const db = new RulingsDb({ path: dbPath });
-    const r = db.verify("II CSK 999/99");
-    expect(r.exists).toBe(false);
-    // suggestions may be empty when prefix doesn't match — both are valid
-    expect(Array.isArray(r.suggestions)).toBe(true);
+  it("returns no candidates for hallucinated signature", () => {
+    const db = new JudgmentsDb({ path: dbPath });
+    const r = db.findCandidates("IV CSKP 95/21");
+    expect(r).toEqual([]);
     db.close();
   });
 
-  it("searchByTopic finds Polish words with and without diacritics", () => {
-    const db = new RulingsDb({ path: dbPath });
-    const withMarks = db.searchByTopic("odpowiedzialność");
-    const withoutMarks = db.searchByTopic("odpowiedzialnosc");
-    expect(withMarks.length).toBe(1);
-    expect(withoutMarks.length).toBe(1);
-    expect(withMarks[0]?.id).toBe(withoutMarks[0]?.id);
-    db.close();
-  });
-
-  it("searchByTopic respects source filter", () => {
-    const db = new RulingsDb({ path: dbPath });
-    const cjeuOnly = db.searchByTopic("RODO", { source: "CJEU" });
-    expect(cjeuOnly.every((r) => r.source === "CJEU")).toBe(true);
-    db.close();
-  });
-
-  it("latest returns ordered rulings", () => {
-    const db = new RulingsDb({ path: dbPath });
-    const sn = db.latest("SN", 5);
-    expect(sn[0]?.signature).toBe("II CSK 123/22");
+  it("is whitespace/dot insensitive on input", () => {
+    const db = new JudgmentsDb({ path: dbPath });
+    expect(db.findCandidates("ii  c.s.k. 750 / 15")).toHaveLength(1);
     db.close();
   });
 });

@@ -5,7 +5,7 @@ on:
     branches: [main]
     paths:
       - "src/**"
-      - "data/rulings.db"
+      - "data/judgments.db"
       - "data/manifest.json"
       - "data/schema.sql"
       - "package.json"
