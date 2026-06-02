@@ -1,0 +1,108 @@
+{
+  "name": "sententim",
+  "version": "0.1.0",
+  "description": "Ultra-fast local-first MCP server protecting LLMs from hallucinations in Polish Supreme Court (SN) and EU (CJEU/TSUE) case law. Sub-10ms lookups, fully offline, Polish diacritics first-class.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "legaltech",
+    "law",
+    "polish-law",
+    "eu-law",
+    "cjeu",
+    "tsue",
+    "sn",
+    "sad-najwyzszy",
+    "orzecznictwo",
+    "ai",
+    "llm",
+    "hallucination-prevention",
+    "local-first",
+    "privacy",
+    "claude",
+    "sqlite",
+    "fts5"
+  ],
+  "homepage": "https://github.com/woladi/sententim#readme",
+  "bugs": {
+    "url": "https://github.com/woladi/sententim/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/woladi/sententim.git"
+  },
+  "license": "MIT",
+  "author": {
+    "name": "Adrian Wołczuk",
+    "email": "panteon@gmail.com",
+    "url": "https://github.com/woladi"
+  },
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "sententim": "./dist/cli.js",
+    "sententim-mcp": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./db": {
+      "types": "./dist/db.d.ts",
+      "import": "./dist/db.js"
+    }
+  },
+  "files": [
+    "dist/",
+    "data/rulings.db",
+    "data/manifest.json",
+    "data/schema.sql",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.10.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "etl:seed": "tsx scripts/etl/seed.ts",
+    "etl:incremental": "tsx scripts/etl/incremental.ts",
+    "etl:saos": "tsx scripts/etl/sources/saos.ts",
+    "etl:cjeu": "tsx scripts/etl/sources/cjeu.ts",
+    "etl:summarize": "tsx scripts/etl/summarize.ts",
+    "etl:build-db": "tsx scripts/etl/build-db.ts",
+    "etl:verify": "tsx scripts/etl/verify.ts",
+    "prepublishOnly": "pnpm run build && pnpm run etl:verify",
+    "release": "changeset publish"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "better-sqlite3": "^11.3.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "@biomejs/biome": "^1.9.4",
+    "@changesets/cli": "^2.27.10",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.2",
+    "tsup": "^8.3.5",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

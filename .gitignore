@@ -1,0 +1,49 @@
+# Dependencies
+node_modules/
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Runtime data
+data/raw/
+data/staging/
+data/cache/
+data/.tmp/
+*.log
+
+# Local seed artifacts (the LARGE one — produced by `pnpm seed`)
+data/seed/
+
+# Env
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# Test coverage
+coverage/
+*.lcov
+
+# Claude Code worktrees
+.claude/worktrees/
+
+# Generated artifacts that travel WITH the npm package
+# (these ARE published — not gitignored)
+# data/rulings.db
+# data/manifest.json
