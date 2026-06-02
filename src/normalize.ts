@@ -38,8 +38,13 @@ export function displaySignature(raw: string): string {
     .trim()
     .toUpperCase()
     .replace(/\s*\/\s*/g, "/")
-    .replace(/([A-ZĄĆĘŁŃÓŚŹŻ])\.(?=[A-ZĄĆĘŁŃÓŚŹŻ]\.?)/g, "$1")
-    .replace(/([A-ZĄĆĘŁŃÓŚŹŻ])\.$/g, "$1")
+    // Strip dots in abbreviations like "C.S.K." → "CSK".
+    // A letter+dot is removed when followed by:
+    //   · another letter+optional-dot (mid-abbreviation, "C.S")
+    //   · whitespace (end of abbreviation, "K. 822")
+    //   · end of input ("K." at EOL)
+    //   · a slash ("K./22")
+    .replace(/([A-ZĄĆĘŁŃÓŚŹŻ])\.(?=[A-ZĄĆĘŁŃÓŚŹŻ]\.?|\s|\/|$)/g, "$1")
     .replace(/\s+/g, " ");
 }
 

@@ -147,6 +147,15 @@ export async function fetchSaosJudgments(opts: SaosFetchOptions = {}): Promise<S
   return { outFile, total, totalReported };
 }
 
+/**
+ * Single-judgment endpoint wraps the response: `{ links: [...], data: {...} }`.
+ * Search endpoint returns judgments inline under `items[]`.  This unwrap
+ * normalises both so the rest of the pipeline always sees a flat record.
+ */
 export async function fetchSingle(id: number): Promise<SaosJudgment> {
-  return fetchJson<SaosJudgment>(`${BASE}/judgments/${id}`, { retries: 3 });
+  const res = await fetchJson<{ data?: SaosJudgment } & Partial<SaosJudgment>>(
+    `${BASE}/judgments/${id}`,
+    { retries: 3 },
+  );
+  return res.data ?? (res as SaosJudgment);
 }

@@ -74,7 +74,10 @@ export async function normaliseSaos(opts: NormaliseInputOptions = {}): Promise<N
   let unresolvedSentencja = 0;
 
   for (const inFile of inputs) {
-    for await (const raw of readJsonl<SaosJudgment>(inFile)) {
+    for await (const wrapper of readJsonl<SaosJudgment & { data?: SaosJudgment }>(inFile)) {
+      // Tolerate both the single-judgment endpoint wrapper ({links, data})
+      // and the inline shape returned by /search/judgments[items].
+      const raw = (wrapper as { data?: SaosJudgment }).data ?? wrapper;
       if (!raw?.id || seenSaosIds.has(raw.id)) {
         skipped++;
         continue;

@@ -43,7 +43,11 @@ coverage/
 # Claude Code worktrees
 .claude/worktrees/
 
-# Generated artifacts that travel WITH the npm package
-# (these ARE published — not gitignored)
-# data/rulings.db
-# data/manifest.json
+# SQLite WAL/SHM journal files — always transient
+*.db-wal
+*.db-shm
+
+# Smoke / dev DBs are ignored until a full ~1300-row corpus is seeded;
+# the ship-quality data/judgments.db is added explicitly in its own commit.
+data/judgments.db
+data/manifest.json

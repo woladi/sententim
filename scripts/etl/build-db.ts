@@ -64,8 +64,16 @@ export async function buildDatabase(opts: BuildOptions): Promise<BuildResult> {
   let inserted = 0;
   let collisions = 0;
 
-  const tx = db.transaction(async () => {
-    for await (const row of readJsonl<StagedJudgment>(stagedJsonl("judgments"))) {
+  // better-sqlite3 transactions are strictly synchronous, so we collect
+  // the streamed rows first, then run the INSERT batch atomically.  Our
+  // staged corpus is bounded (~1300 rows) — fine to hold in memory.
+  const rows: StagedJudgment[] = [];
+  for await (const row of readJsonl<StagedJudgment>(stagedJsonl("judgments"))) {
+    rows.push(row);
+  }
+
+  const tx = db.transaction((batch: StagedJudgment[]) => {
+    for (const row of batch) {
       total++;
       const info = insert.run({
         sygnatura: row.sygnatura,
@@ -85,7 +93,7 @@ export async function buildDatabase(opts: BuildOptions): Promise<BuildResult> {
       else collisions++;
     }
   });
-  await tx();
+  tx(rows);
 
   const upsertManifest = db.prepare(
     "INSERT INTO manifest(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
