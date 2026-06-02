@@ -181,15 +181,39 @@ Streszczenia LLM — **tylko z human-in-the-loop i flagą provenance**, **nigdy*
 ## Development
 
 ```bash
-pnpm install
+pnpm install              # patrz: native build niżej
 pnpm typecheck
 pnpm lint
-pnpm test
+pnpm test                 # 53 testów, wszystko in-memory (bez sieci)
 
 pnpm etl:seed             # ~15-20 min, lokalnie, produkuje data/judgments.db
-pnpm etl:seed --max=50    # smoke
-pnpm etl:verify           # pre-publish gate
-pnpm build
+pnpm etl:seed --max=50    # smoke (~30s, nie produkuje ship-grade DB)
+pnpm etl:seed --skip-fetch # rebuild DB z istniejących raw JSONL
+pnpm etl:verify           # pre-publish gate (PRAGMA query_only + latencja)
+pnpm build                # → dist/ (ESM + .d.ts + maps)
+```
+
+### Native build (better-sqlite3)
+
+`pnpm 11` blokuje domyślnie buildy natywne. Repo wnosi `pnpm-workspace.yaml` z `onlyBuiltDependencies` — przy pierwszym `pnpm install` może pojawić się ostrzeżenie `ERR_PNPM_IGNORED_BUILDS`. Jednorazowy fix:
+
+```bash
+pnpm install --config.dangerouslyAllowAllBuilds=true
+# albo
+pnpm approve-builds        # interaktywnie zaakceptuj: better-sqlite3, esbuild, @biomejs/biome
+```
+
+Po skompilowaniu `.node` binary (~25s na Apple Silicon), kolejne `pnpm install` już nie wymagają flagi.
+
+### Audyt determinizmu
+
+Każdy wiersz w bazie ma `zrodlo_url` + `data_pobrania` + `sha256(textContent)`. Weryfikacja, że nasze pola pochodzą z tych bajtów:
+
+```bash
+# Bierzemy losowy rekord:
+node -e "const D=require('better-sqlite3'); const db=new D('data/judgments.db',{readonly:true}); console.log(db.prepare('SELECT zrodlo_url, sha256 FROM judgments ORDER BY RANDOM() LIMIT 1').get())"
+# Pobieramy źródło, hashujemy textContent, porównujemy:
+curl -s "<zrodlo_url>" | jq -r .textContent | shasum -a 256
 ```
 
 Layout:

@@ -30,7 +30,13 @@ The initial scaffold positioned sententim as a five-tool AI-grounding ecosystem 
 ### Gated (kept in tree, disabled)
 - CJEU/CELLAR ingestion (`scripts/etl/sources/cjeu.ts`). Enable with `SENTENTIM_ENABLE_CJEU=1` for raw fetch; full schema integration deferred to v0.5.
 
+### Fixed (first end-to-end smoke run)
+- `displaySignature` dot-strip regex was leaving a trailing `.` when an abbreviation ended at whitespace (`II c.s.k. 822/22` → `II CSK. 822/22`). Extended the lookahead.
+- `better-sqlite3` transactions cannot return promises; `build-db.ts` now collects the streamed rows into an array before running the INSERT batch synchronously.
+- SAOS `/api/judgments/{id}` wraps the response in `{links, data}`; `fetchSingle()` now unwraps and `normalize.ts` tolerates either shape for already-saved JSONL.
+
 ### Known limitations
 - SN coverage via SAOS ends 2016-06-22 (upstream freeze). COMMON courts are current.
 - `prawomocny` and `uchylony_przez` are NULL in MVP-1 — they require a cross-ref pass (v0.2).
-- ~20-30% of records have NULL `sentencja_typ` when the 5 regex rules don't match (compound rulings).
+- ~30-40% of records have NULL `sentencja_typ` when the 5 regex rules don't match (observed on real COMMON corpus — slightly higher than the initial ~20-30% estimate; bumping our heuristic depth is roadmap v0.2).
+- `pnpm install` may warn about ignored native builds; one-time fix documented in README.
