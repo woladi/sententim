@@ -47,7 +47,7 @@ coverage/
 *.db-wal
 *.db-shm
 
-# Smoke / dev DBs are ignored until a full ~1300-row corpus is seeded;
-# the ship-quality data/judgments.db is added explicitly in its own commit.
-data/judgments.db
-data/manifest.json
+# Ship-quality artifacts:
+# - data/judgments.db   — bundled inside the npm package, committed to git.
+# - data/manifest.json  — same, plain-text mirror of the embedded manifest.
+# Listed in package.json "files" → they travel with the published tarball.

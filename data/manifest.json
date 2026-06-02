@@ -1,0 +1,10 @@
+{
+  "version": "0.1.0",
+  "builtAt": "2026-06-02T10:43:04.549Z",
+  "schemaVersion": 1,
+  "total": 1272,
+  "source": "SAOS",
+  "legalDomain": "sankcja_kredytu_darmowego",
+  "seedQueryCount": 2,
+  "dataDir": "/Users/adrianwolczuk/Projects/Dev/sententim/data"
+}

@@ -95,6 +95,15 @@ export async function buildDatabase(opts: BuildOptions): Promise<BuildResult> {
   });
   tx(rows);
 
+  // `info.changes === 1` is true for both INSERT and UPDATE branches of
+  // the UPSERT, so `inserted` over-counts when staged JSONL contains two
+  // SAOS records that map to the same (sygnatura_norm, sad, data) key.
+  // Take the authoritative count from the table itself.
+  const distinctRows = (db.prepare("SELECT COUNT(*) AS n FROM judgments").get() as { n: number }).n;
+  const upserts = inserted - distinctRows;
+  inserted = distinctRows;
+  collisions += Math.max(0, upserts);
+
   const upsertManifest = db.prepare(
     "INSERT INTO manifest(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
   );
