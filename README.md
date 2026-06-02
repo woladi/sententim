@@ -35,7 +35,9 @@ Reguła naczelna: **jeśli czegoś nie ma w bazie → `NOT_FOUND`. Nigdy nie zga
 |---|---|
 | **Domena prawna** | Sankcja kredytu darmowego (art. 45 ukk + art. 75c pr.bank) |
 | **Źródło** | SAOS · System Analizy Orzeczeń Sądowych (publiczne, otwarte dane) |
-| **Korpus** | ~1300 wyroków SR / SO / SA / SN dotykających tej tematyki |
+| **Korpus (v0.1.0)** | **1272 wyroków** · zakres dat 2012-02-27 → 2026-05-06 |
+| **Rozkład instancji** | SO 718 · SR 458 · SA 96 · SN 0 (sankcja KD to z natury sprawa I-instancyjna) |
+| **DB size** | 1.17 MB · pełen lookup `0.05-0.4 ms` |
 | **Tooling** | Jedno narzędzie MCP: `verify_signature` |
 | **Audyt** | Każdy rekord: `zrodlo_url` + `data_pobrania` + `sha256(textContent)` |
 
