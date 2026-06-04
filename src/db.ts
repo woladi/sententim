@@ -35,6 +35,7 @@ interface JudgmentRow {
   zrodlo_url: string;
   data_pobrania: string;
   sha256: string;
+  ecli: string | null;
 }
 
 function rowToJudgment(row: JudgmentRow): Judgment {

@@ -39,6 +39,8 @@ export interface Judgment {
   data_pobrania: string;
   /** sha256 of the raw upstream `textContent` (audit; not exposed to MCP). */
   sha256: string;
+  /** ECLI identifier — present for TSUE always, SN often, others rarely. */
+  ecli: string | null;
 }
 
 /** Public, MCP-facing projection — excludes the audit hash. */
@@ -53,6 +55,7 @@ export interface JudgmentMatch {
   podstawa_prawna: string[];
   zrodlo_url: string;
   data_pobrania: string;
+  ecli: string | null;
 }
 
 /**

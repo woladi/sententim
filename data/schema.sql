@@ -60,12 +60,19 @@ CREATE TABLE IF NOT EXISTS judgments (
   -- normalizacją).  Audyt: pozwala wykryć, że źródło się zmieniło.
   sha256          TEXT NOT NULL,
 
+  -- European Case Law Identifier — globalnie unikalny identyfikator wyroku.
+  -- TSUE używa go jako PRIMARY ID; SN ma ECLI nadane przez sn.pl;
+  -- COMMON courts mogą mieć lub nie.  NULL gdy źródło nie udostępnia.
+  -- Przykład: ECLI:EU:C:2022:1, ECLI:PL:SN:2015:V.CSK.343.14.1
+  ecli            TEXT,
+
   UNIQUE(sygnatura_norm, sad, data_orzeczenia)
 );
 
 CREATE INDEX IF NOT EXISTS idx_sygn_norm ON judgments(sygnatura_norm);
 CREATE INDEX IF NOT EXISTS idx_sad       ON judgments(sad);
 CREATE INDEX IF NOT EXISTS idx_data      ON judgments(data_orzeczenia);
+CREATE INDEX IF NOT EXISTS idx_ecli      ON judgments(ecli) WHERE ecli IS NOT NULL;
 
 -- ────────────────────────────────────────────────────────────────────────
 -- judgments_fts · prepared for v0.2 search_judgments tool

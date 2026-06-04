@@ -36,14 +36,14 @@ Reguła naczelna: **jeśli czegoś nie ma w bazie → `NOT_FOUND`. Nigdy nie zga
 
 | Pole | Wartość |
 |---|---|
-| **Wersja** | sententim@0.2.x · [pełen CHANGELOG](CHANGELOG.md) |
-| **Domena prawna** | Sankcja kredytu darmowego (art. 45 ukk + art. 75c pr.bank) |
-| **Źródło** | SAOS · System Analizy Orzeczeń Sądowych (publiczne, otwarte dane) |
-| **Korpus** | **1272 wyroków** · zakres dat 2012-02-27 → 2026-05-06 |
-| **Rozkład instancji** | SO 718 · SR 458 · SA 96 · SN 0 (sankcja KD to z natury sprawa I-instancyjna) |
-| **DB size** | 1.17 MB · pełen lookup `0.05 – 0.4 ms` |
+| **Wersja** | sententim@0.5.x · [pełen CHANGELOG](CHANGELOG.md) |
+| **Domena prawna** | Kredyt konsumencki + frankowy (sankcja KD, klauzule abuzywne, art. 45 ukk + 75c pr.bank) |
+| **Źródła** | SAOS (SR/SO/SA/SN) · CELLAR / EUR-Lex (TSUE polskie wersje wyroków) |
+| **Korpus** | **1348 wyroków** · ~2011 → 2026 |
+| **Rozkład instancji** | SO 721 · SR 459 · SA 96 · SN 57 · TSUE 15 |
+| **DB size** | 1.23 MB · pełen lookup `0.05 – 0.4 ms` |
 | **Toole MCP** | `verify_signature` · `search_judgments` |
-| **Audyt** | Każdy rekord: `zrodlo_url` + `data_pobrania` + `sha256(textContent)` |
+| **Audyt** | Każdy rekord: `zrodlo_url` + `data_pobrania` + `sha256` + (gdy dostępne) `ecli` |
 | **Provenance** | Sigstore SLSA v1 attestation na każdej publikacji npm |
 
 ## Quick start
@@ -202,7 +202,7 @@ Każde pole pochodzi z deterministycznej ekstrakcji — pełna lista parserów: 
                     verify_signature   search_judgments
                             │                │
                             ▼                ▼
-                  FOUND/NOT_FOUND/AMBIGUOUS  ranked matches
+    FOUND/NOT_FOUND/AMBIGUOUS/OUT_OF_SCOPE  ranked matches
 ```
 
 | Komponent | Stack |
@@ -215,21 +215,24 @@ Każde pole pochodzi z deterministycznej ekstrakcji — pełna lista parserów: 
 
 ## Limity i znane luki
 
-- **`prawomocny`**: SA/SN/NSA/TK/TSUE → `1` z definicji; SR/SO → `1` tylko gdy w korpusie istnieje appellate ze `sentencja_typ=oddala` referujące tę sygnaturę; inaczej `NULL`. Na obecnym wąskim korpusie (1272 rekordów) → 96 by-instance + 19 by-cross-ref = **115 prawomocnych**, 1157 NULL.
-- **`uchylony_przez`** — backfilluje cross-ref pass na podstawie wzorca "sygn. akt X" w textContent appellate'ów `uchyla_przekazuje`. Na narrow corpus daje **0 trafień** (w domenie sankcji KD "uchyla" to zwykle self-reference do `wyroku zaocznego`/`nakazu zapłaty` w tym samym sądzie, nie wyższa instancja). Pasuje do roadmap v0.3 z szerszym korpusem.
+- **SAOS-owy SN** zamrożony na **2016-06-22** (CeON przestał ingestować z sn.pl). W korpusie mamy 57 wyroków SN do tej daty z domeny kredytu konsumenckiego / klauzul abuzywnych. Roadmap v0.6: scraper sn.pl dla post-2016 SN.
+- **TSUE** — pokryte hand-curated listą 15 najważniejszych orzeczeń dla domeny (consumer credit Directive 2008/48 + klauzule abuzywne D.93/13). Roadmap v0.6: rozszerzyć przez CELLAR SPARQL + EUROVOC concept code, gdy zweryfikujemy go dla "kredyt konsumencki".
+- **`prawomocny`**: SA/SN/NSA/TK/TSUE → `1` z definicji; SR/SO → `1` tylko gdy w korpusie istnieje appellate ze `sentencja_typ=oddala` referujące tę sygnaturę; inaczej `NULL`. Na korpusie v0.5 (1348 rekordów) → 169 by-instance + 19 by-cross-ref = **188 prawomocnych**, 1160 NULL.
+- **`uchylony_przez`** — backfilluje cross-ref pass na podstawie wzorca "sygn. akt X" w textContent appellate'ów `uchyla_przekazuje`. Na korpusie v0.5 = **4 trafienia** (z 0 w v0.4 dzięki rozszerzeniu o SN-owe powołania).
 - **`sentencja_typ` `NULL` ~31%** — świadomie zamiast zgadywać `'inne'`. Najczęściej compound rulings ("uchyla w części, w pozostałej oddala") które wymagają mocniejszej heurystyki.
 - **`search_judgments`** — stem-aware ale nie pełna morfologia. `Warszawa→Warszaw*` łapie "Warszawie/Warszawy", ale rzadkie odmiany mogą umknąć.
 - **`search_judgments` nie szuka po pełnym tekście** wyroku — FTS5 indeksuje tylko `(sygnatura, sygnatura_norm, podstawa_prawna, sad)`. Pełen tekst nie ląduje w bazie (sha256 jako audyt). Pytanie typu "RODO" znajdzie tylko gdy "RODO" jest w `podstawa_prawna`.
-- **CJEU / TSUE wyłączone** — kod istnieje pod flagą `SENTENTIM_ENABLE_CJEU=1`, ale integracja z deterministycznym schematem wymaga przeprojektowania (roadmap v0.5).
+- **TSUE `data_orzeczenia` to rok-styczeń-1** — CELLAR HTML nie udostępnia daty w machine-readable miejscu, więc stamping na `YYYY-01-01` (gdzie `YYYY` to rok z CELEX-u). Realna data wymaga parsowania HTML body — roadmap v0.6.
 - **Daty filtrowane** do zakresu `1990-01-01 ... dzisiaj+1d` (literówki w źródle typu „3013-…" są odrzucane).
 
 ## Roadmap
 
-- **v0.1** — `verify_signature`, sankcja kredytu darmowego, SAOS.
-- **v0.2** — `search_judgments` (FTS5), prawomocny heurystyka + cross-ref pass dla SR/SO, OIDC Trusted Publishing. *Tu jesteś.*
-- **v0.3** — Druga domena prawna (rozszerzenie korpusu seedu) + pełniejszy cross-ref pass dla `uchylony_przez`.
-- **v0.4** — Scraper sn.pl dla SN post-2016 (SAOS-owy SN zamrożony na 2016-06-22).
-- **v0.5** — Aktywacja CJEU/TSUE (osobny schema-extension dla ECLI + procedural lang).
+- **v0.1** — `verify_signature`, sankcja kredytu darmowego, SAOS COMMON.
+- **v0.2** — `search_judgments` (FTS5), prawomocny heurystyka + cross-ref pass dla SR/SO, OIDC Trusted Publishing.
+- **v0.3** — `npx -y sententim` smart-entry (binarka detect MCP/CLI).
+- **v0.4** — Nowy status `OUT_OF_SCOPE` + heurystyka klasyfikacji wzorca SN/TSUE/NSA/TK, sanitiser FTS5 / rok 4-cyfrowy / stem-aware filtr `sad`.
+- **v0.5** — **SN (SAOS-owy, do 2016-06-22) + TSUE (curated 15 spraw)**. Schema: opcjonalne `ecli`. Korpus 1348 wyroków · ["SR","SO","SA","SN","TSUE"]. *Tu jesteś.*
+- **v0.6** — Scraper sn.pl dla post-2016 SN + CELLAR SPARQL+EUROVOC do automatycznego rozszerzania TSUE + real `data_orzeczenia` z TSUE HTML.
 
 Streszczenia LLM — **tylko z human-in-the-loop i flagą provenance**, **nigdy** w default-path.
 

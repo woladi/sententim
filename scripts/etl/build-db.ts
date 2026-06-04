@@ -44,11 +44,11 @@ export async function buildDatabase(opts: BuildOptions): Promise<BuildResult> {
     INSERT INTO judgments (
       sygnatura, sygnatura_norm, sad, instancja, data_orzeczenia,
       sentencja_typ, prawomocny, uchylony_przez, podstawa_prawna,
-      zrodlo_url, data_pobrania, sha256
+      zrodlo_url, data_pobrania, sha256, ecli
     ) VALUES (
       @sygnatura, @sygnatura_norm, @sad, @instancja, @data_orzeczenia,
       @sentencja_typ, @prawomocny, @uchylony_przez, @podstawa_prawna,
-      @zrodlo_url, @data_pobrania, @sha256
+      @zrodlo_url, @data_pobrania, @sha256, @ecli
     )
     ON CONFLICT(sygnatura_norm, sad, data_orzeczenia) DO UPDATE SET
       sygnatura       = excluded.sygnatura,
@@ -56,7 +56,8 @@ export async function buildDatabase(opts: BuildOptions): Promise<BuildResult> {
       podstawa_prawna = excluded.podstawa_prawna,
       zrodlo_url      = excluded.zrodlo_url,
       data_pobrania   = excluded.data_pobrania,
-      sha256          = excluded.sha256
+      sha256          = excluded.sha256,
+      ecli            = excluded.ecli
   `);
 
   const now = new Date().toISOString();
@@ -88,6 +89,7 @@ export async function buildDatabase(opts: BuildOptions): Promise<BuildResult> {
         zrodlo_url: row.zrodlo_url,
         data_pobrania: row.data_pobrania,
         sha256: row.sha256,
+        ecli: row.ecli ?? null,
       });
       if (info.changes === 1) inserted++;
       else collisions++;

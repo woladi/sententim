@@ -72,6 +72,7 @@ function toMatch(j: Judgment): JudgmentMatch {
     podstawa_prawna: j.podstawa_prawna,
     zrodlo_url: j.zrodlo_url,
     data_pobrania: j.data_pobrania,
+    ecli: j.ecli,
   };
 }
 
