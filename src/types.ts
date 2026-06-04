@@ -55,11 +55,33 @@ export interface JudgmentMatch {
   data_pobrania: string;
 }
 
-export type VerifyStatus = "FOUND" | "NOT_FOUND" | "AMBIGUOUS";
+/**
+ * verify_signature status codes.
+ *
+ *   FOUND         — exactly one match in the bundled corpus.
+ *   NOT_FOUND     — zero matches, and the signature's shape does not look
+ *                   like an instance that's outside our corpus scope.
+ *                   Treat as "this citation is probably fabricated".
+ *   AMBIGUOUS     — two or more matches share this signature (typically the
+ *                   same case number reused by different courts).
+ *   OUT_OF_SCOPE  — zero matches, BUT the signature's shape matches an
+ *                   instance (SN / TSUE / NSA / TK) that is NOT covered by
+ *                   the bundled corpus.  Treat as "we cannot say either way
+ *                   — verify in source", NOT as a fabrication.
+ */
+export type VerifyStatus = "FOUND" | "NOT_FOUND" | "AMBIGUOUS" | "OUT_OF_SCOPE";
 
 export interface VerifyResult {
   status: VerifyStatus;
   matches: JudgmentMatch[];
+  /** Which instancje the bundled corpus actually covers — read from the manifest. */
+  corpus_scope: Instancja[];
+  /**
+   * Only set when `status === "OUT_OF_SCOPE"`.  The instance our heuristic
+   * believes the signature most likely belongs to, given its shape.  This
+   * is a CLASSIFIER hint, not a fact about an actual court ruling.
+   */
+  likely_instancja?: Instancja;
   disclaimer: string;
 }
 
@@ -73,4 +95,6 @@ export interface Manifest {
   legal_domain: string;
   seed_query_count: number;
   last_seed_at: string;
+  /** Distinct `instancja` values present in the bundled corpus. */
+  corpus_scope: Instancja[];
 }

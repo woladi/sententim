@@ -104,6 +104,15 @@ export async function buildDatabase(opts: BuildOptions): Promise<BuildResult> {
   inserted = distinctRows;
   collisions += Math.max(0, upserts);
 
+  // Compute corpus_scope from the actual data — distinct instancje
+  // sorted in our canonical order so manifest is stable across rebuilds.
+  const CANONICAL_ORDER = ["SR", "SO", "SA", "SN", "NSA", "WSA", "TK", "TSUE"];
+  const scopeRows = db
+    .prepare("SELECT DISTINCT instancja FROM judgments ORDER BY instancja")
+    .all() as Array<{ instancja: string }>;
+  const scopeSet = new Set(scopeRows.map((r) => r.instancja));
+  const corpusScope = CANONICAL_ORDER.filter((x) => scopeSet.has(x));
+
   const upsertManifest = db.prepare(
     "INSERT INTO manifest(key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
   );
@@ -116,6 +125,7 @@ export async function buildDatabase(opts: BuildOptions): Promise<BuildResult> {
     legal_domain: opts.legalDomain ?? "sankcja_kredytu_darmowego",
     seed_query_count: String(opts.seedQueryCount ?? 0),
     last_seed_at: now,
+    corpus_scope: JSON.stringify(corpusScope),
   };
   for (const [k, v] of Object.entries(manifest)) upsertManifest.run(k, v);
 
@@ -136,6 +146,7 @@ export async function buildDatabase(opts: BuildOptions): Promise<BuildResult> {
         source: opts.source ?? "SAOS",
         legalDomain: opts.legalDomain ?? "sankcja_kredytu_darmowego",
         seedQueryCount: opts.seedQueryCount ?? 0,
+        corpusScope: corpusScope,
         dataDir: DATA_DIR,
       },
       null,

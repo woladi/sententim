@@ -24,9 +24,13 @@ export const searchJudgmentsTool = {
   title: "Wyszukaj wyroki",
   description: [
     "Wyszukuje wyroki polskich sądów po sygnaturze, nazwie sądu lub podstawie prawnej (FTS5).",
+    "NIE indeksuje treści orzeczenia ani słów tematycznych — zapytania typu 'kredyt', 'RODO',",
+    "'oddala' znajdą trafienia TYLKO gdy słowo występuje w sygnaturze, nazwie sądu lub liście",
+    "podstaw prawnych. Akcento-niewrażliwe i naiwnie morfologiczne (Warszawa→Warszawie).",
     "Zwraca posortowane po trafności rekordy z twardymi faktami — bez generowania treści.",
     "Używaj gdy LLM nie ma konkretnej sygnatury, ale chce zorientować się czy w bazie jest coś trafnego.",
     "Wciąż obowiązuje reguła naczelna: nie cytuj wyroku, jeśli nie ma go w bazie.",
+    "Pole `corpus_scope` w odpowiedzi mówi które instancje baza pokrywa.",
   ].join(" "),
   inputSchema: {
     type: "object",
@@ -69,6 +73,7 @@ export function runSearchJudgments(db: JudgmentsDb, input: SearchJudgmentsInput)
     instancja: parsed.instancja ?? "ALL",
     total_returned: rows.length,
     matches: rows.map(toMatch),
+    corpus_scope: db.manifest().corpus_scope,
     disclaimer: DISCLAIMER,
   };
 }

@@ -25,8 +25,11 @@ export {
   displaySignature,
   normaliseSignature,
   signaturesMatch,
+  stemPolishPhrase,
+  stemPolishWord,
   stripDiacritics,
 } from "./normalize.js";
+export { detectLikelyInstancja } from "./instancja-pattern.js";
 export type * from "./types.js";
 
 /**

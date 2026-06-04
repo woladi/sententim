@@ -89,6 +89,7 @@ beforeAll(() => {
     legal_domain: "test",
     seed_query_count: "2",
     last_seed_at: "2025-01-01T00:00:00Z",
+    corpus_scope: JSON.stringify(["SR", "SN"]),
   }))
     manifest.run(k, v);
   seedDb.close();

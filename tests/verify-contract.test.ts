@@ -89,6 +89,7 @@ beforeAll(() => {
     legal_domain: "test",
     seed_query_count: "2",
     last_seed_at: "2025-01-01T00:00:00Z",
+    corpus_scope: JSON.stringify(["SR", "SN"]),
   }))
     manifest.run(k, v);
   seed.close();
@@ -140,11 +141,59 @@ describe("verify_signature contract", () => {
     expect(r.matches[0]?.sad).toBe("Sąd Rejonowy w Warszawie");
   });
 
-  it("(3) NOT_FOUND for a hallucinated signature — no fabrication", () => {
+  it("(3) NOT_FOUND for a hallucinated SN signature when SN is covered", () => {
+    // Fixture corpus_scope = ["SR","SN"].  `IV CSKP 95/21` matches the
+    // SN pattern AND SN is in scope → fabrication, not out-of-scope.
     const r = runVerifySignature(db, { sygnatura: "IV CSKP 95/21" });
     expect(r.status).toBe("NOT_FOUND");
     expect(r.matches).toEqual([]);
     expect(r.disclaimer).toBe(DISCLAIMER);
+    expect(r.corpus_scope).toEqual(["SR", "SN"]);
+    expect(r.likely_instancja).toBeUndefined();
+  });
+
+  it("(3b) OUT_OF_SCOPE for a signature whose instance is not in corpus", () => {
+    // Fixture corpus_scope = ["SR","SN"].  `C-487/21` matches TSUE
+    // pattern, TSUE NOT in scope → OUT_OF_SCOPE, with likely_instancja hint.
+    const r = runVerifySignature(db, { sygnatura: "C-487/21" });
+    expect(r.status).toBe("OUT_OF_SCOPE");
+    expect(r.matches).toEqual([]);
+    expect(r.likely_instancja).toBe("TSUE");
+    expect(r.corpus_scope).toEqual(["SR", "SN"]);
+  });
+
+  it("(3c) OUT_OF_SCOPE for NSA-shaped signature", () => {
+    const r = runVerifySignature(db, { sygnatura: "II FSK 100/24" });
+    expect(r.status).toBe("OUT_OF_SCOPE");
+    expect(r.likely_instancja).toBe("NSA");
+  });
+
+  it("(3d) OUT_OF_SCOPE for TK-shaped signature", () => {
+    const r = runVerifySignature(db, { sygnatura: "K 12/20" });
+    expect(r.status).toBe("OUT_OF_SCOPE");
+    expect(r.likely_instancja).toBe("TK");
+  });
+
+  it("(3e) NOT_FOUND for SR-shaped fake signature (instance is in scope)", () => {
+    const r = runVerifySignature(db, { sygnatura: "I C 999999/99" });
+    expect(r.status).toBe("NOT_FOUND");
+    expect(r.likely_instancja).toBeUndefined();
+  });
+
+  it("(3f) B2 — four-digit year is normalised to two", () => {
+    // The fixture has `I C 822/22` (SR Olsztynie) — looking it up with
+    // the long form `/2022` should still find it.
+    const r = runVerifySignature(db, { sygnatura: "I C 822/2022", sad: "Olsztyn" });
+    expect(r.status).toBe("FOUND");
+    expect(r.matches[0]?.data_orzeczenia).toBe("2022-09-15");
+  });
+
+  it("(3g) B3 — stem-aware sad filter matches nominative input", () => {
+    // Fixture has "Sąd Rejonowy w Olsztynie" (locative).  Input
+    // `sad="Olsztyn"` (nominative) gets stemmed → still matches.
+    const r = runVerifySignature(db, { sygnatura: "I C 822/22", sad: "Olsztyn" });
+    expect(r.status).toBe("FOUND");
+    expect(r.matches[0]?.sad).toContain("Olsztyn");
   });
 
   it("(4) lookup completes well under 10ms", () => {
@@ -154,5 +203,15 @@ describe("verify_signature contract", () => {
     runVerifySignature(db, { sygnatura: "II CSK 750/15" });
     const dt = performance.now() - t0;
     expect(dt).toBeLessThan(10);
+  });
+
+  it("(5) corpus_scope is present in every response shape", () => {
+    const found = runVerifySignature(db, { sygnatura: "II CSK 750/15" });
+    const notFound = runVerifySignature(db, { sygnatura: "I C 999999/99" });
+    const ambiguous = runVerifySignature(db, { sygnatura: "I C 822/22" });
+    const oos = runVerifySignature(db, { sygnatura: "C-487/21" });
+    for (const r of [found, notFound, ambiguous, oos]) {
+      expect(r.corpus_scope).toEqual(["SR", "SN"]);
+    }
   });
 });

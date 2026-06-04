@@ -2,8 +2,8 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database, { type Database as Db } from "better-sqlite3";
-import { normaliseSignature } from "./normalize.js";
-import type { Judgment, Manifest } from "./types.js";
+import { normaliseSignature, stemPolishPhrase, stemPolishWord } from "./normalize.js";
+import type { Instancja, Judgment, Manifest } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -156,6 +156,7 @@ export class JudgmentsDb {
       legal_domain: map.get("legal_domain") ?? "",
       seed_query_count: Number(map.get("seed_query_count") ?? 0),
       last_seed_at: map.get("last_seed_at") ?? "",
+      corpus_scope: parseCorpusScope(map.get("corpus_scope")),
     };
     return this.#manifest;
   }
@@ -175,7 +176,12 @@ export class JudgmentsDb {
    */
   findCandidates(sygnatura: string, opts: FindCandidatesOptions = {}): Judgment[] {
     const norm = normaliseSignature(sygnatura);
-    const sadLike = opts.sad?.trim() ? `%${opts.sad.trim()}%` : null;
+    // Stem-aware `sad` substring: `"Gdynia"` becomes `"Gdyni"` so it
+    // matches the locative form `"Sąd Rejonowy w Gdyni"` stored in the
+    // base.  Token-wise so multi-word inputs ("Sąd Apelacyjny") still
+    // work as substring anchors.
+    const sadRaw = opts.sad?.trim();
+    const sadLike = sadRaw ? `%${stemPolishPhrase(sadRaw)}%` : null;
     const data = opts.data?.trim() || null;
 
     let rows: JudgmentRow[];
@@ -202,19 +208,39 @@ export class JudgmentsDb {
   ): Judgment[] {
     const fts = sanitiseFtsQuery(query);
     if (!fts) return [];
-    const rows = this.#ftsSearch.all({
-      q: fts,
-      instancja: opts.instancja ?? null,
-      limit: Math.min(opts.limit ?? 20, 100),
-      offset: Math.max(opts.offset ?? 0, 0),
-    }) as JudgmentRow[];
-    return rows.map(rowToJudgment);
+    // Wrap the FTS5 call: even though the sanitiser strips reserved
+    // keywords and special chars, a future malformed input shouldn't
+    // surface as MCP error -32603.  A defensive empty result is the
+    // contractually safer fallback.
+    try {
+      const rows = this.#ftsSearch.all({
+        q: fts,
+        instancja: opts.instancja ?? null,
+        limit: Math.min(opts.limit ?? 20, 100),
+        offset: Math.max(opts.offset ?? 0, 0),
+      }) as JudgmentRow[];
+      return rows.map(rowToJudgment);
+    } catch (err) {
+      // Log to stderr so operators can diagnose, but never throw.
+      process.stderr.write(
+        `sententim · search() swallowed: ${(err as Error).message} (query="${query}")\n`,
+      );
+      return [];
+    }
   }
 
   close(): void {
     this.db.close();
   }
 }
+
+/**
+ * FTS5 reserved keywords — when these appear as bare tokens FTS5
+ * treats them as operators (`AND`/`OR`/`NOT`/`NEAR`) and our `expandToken`
+ * would turn them into `OR*` / `AND*` / etc. which FTS5 then rejects
+ * with a syntax error.  Drop them before they reach the query.
+ */
+const FTS5_RESERVED: ReadonlySet<string> = new Set(["AND", "OR", "NOT", "NEAR"]);
 
 /**
  * FTS5 query sanitiser.
@@ -228,7 +254,9 @@ export class JudgmentsDb {
  * majority of city / declension cases without a dictionary dependency.
  *
  * Tokens are whitelisted to letters + digits (incl. Polish diacritics)
- * so nothing in the user's input can hijack FTS5 query syntax.
+ * so nothing in the user's input can hijack FTS5 query syntax.  We also
+ * drop the FTS5 reserved keywords (AND/OR/NOT/NEAR) — they would otherwise
+ * become `OR*` after expansion and trip a syntax error.
  *
  * Multi-token queries become implicit AND (FTS5 default).
  */
@@ -237,7 +265,8 @@ function sanitiseFtsQuery(input: string): string {
   const tokens = input
     .replace(/[^\p{L}\p{N}\s]/gu, " ")
     .split(/\s+/)
-    .filter((t) => t.length >= 2);
+    .filter((t) => t.length >= 2)
+    .filter((t) => !FTS5_RESERVED.has(t.toUpperCase()));
   if (tokens.length === 0) return "";
   return tokens.map(expandToken).join(" ");
 }
@@ -247,8 +276,34 @@ function expandToken(t: string): string {
   // `Warszawa` matches `Warszawie`, `apelacyjny` matches `apelacyjna`,
   // etc.  FTS5 rejects parenthesised OR-groups when mixed with AND
   // terms, so we commit to the stem instead of OR-ing both forms.
-  if (t.length >= 5 && /[aąeęioóuy]$/iu.test(t)) {
-    return `${t.slice(0, -1)}*`;
+  // The same stem heuristic powers the `sad` substring filter in
+  // findCandidates — see stemPolishWord in normalize.ts.
+  return `${stemPolishWord(t)}*`;
+}
+
+/**
+ * Parse `corpus_scope` value stored in the manifest table as a JSON
+ * array of Instancja codes.  Defaults to `["SR","SO","SA"]` for
+ * back-compat with v0.3.x DBs which didn't set the key.
+ */
+const INSTANCJA_VALUES: ReadonlySet<Instancja> = new Set<Instancja>([
+  "SR",
+  "SO",
+  "SA",
+  "SN",
+  "NSA",
+  "WSA",
+  "TK",
+  "TSUE",
+]);
+
+function parseCorpusScope(raw: string | undefined): Instancja[] {
+  if (!raw) return ["SR", "SO", "SA"];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return ["SR", "SO", "SA"];
+    return parsed.filter((x): x is Instancja => INSTANCJA_VALUES.has(x as Instancja));
+  } catch {
+    return ["SR", "SO", "SA"];
   }
-  return `${t}*`;
 }

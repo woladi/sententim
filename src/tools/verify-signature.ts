@@ -1,5 +1,7 @@
 import { z } from "zod";
 import type { JudgmentsDb } from "../db.js";
+import { detectLikelyInstancja } from "../instancja-pattern.js";
+import { normaliseSignature } from "../normalize.js";
 import type { Judgment, JudgmentMatch, VerifyResult } from "../types.js";
 
 export const DISCLAIMER =
@@ -29,10 +31,14 @@ export const verifySignatureTool = {
   title: "Zweryfikuj istnienie wyroku",
   description: [
     "Zwraca wyłącznie zweryfikowane fakty z lokalnej bazy polskich wyroków.",
-    "Jeśli wyrok nie istnieje w bazie → status: NOT_FOUND.",
-    "Jeśli ta sama sygnatura występuje w kilku sądach → status: AMBIGUOUS, wszyscy kandydaci.",
-    "NIE cytuj sygnatur, których to narzędzie nie potwierdziło.",
-    "Pola: sygnatura, sąd, instancja, data, typ sentencji, podstawa prawna, URL źródła, data pobrania.",
+    "Statusy odpowiedzi:",
+    "FOUND — jedno trafienie, użyj danych;",
+    "AMBIGUOUS — kilka sądów, wszyscy kandydaci zwróceni;",
+    "NOT_FOUND — zero trafień, sygnatura wygląda jak SR/SO/SA (które baza pokrywa) → prawdopodobnie zmyślona;",
+    "OUT_OF_SCOPE — zero trafień, sygnatura wygląda jak SN/TSUE/NSA/TK (które baza NIE pokrywa) → nie potrafimy potwierdzić ani zaprzeczyć, sprawdź w źródle.",
+    "Pole `corpus_scope` mówi które instancje baza faktycznie pokrywa.",
+    "Pole `likely_instancja` (tylko dla OUT_OF_SCOPE) to heurystyczny pattern-match — nie fakt o sądzie.",
+    "NIE cytuj sygnatur ze statusem NOT_FOUND ani OUT_OF_SCOPE jako potwierdzonych przez ten tool.",
   ].join(" "),
   inputSchema: {
     type: "object",
@@ -75,12 +81,43 @@ export function runVerifySignature(db: JudgmentsDb, input: VerifySignatureInput)
     sad: parsed.sad,
     data: parsed.data,
   });
+  const corpus_scope = db.manifest().corpus_scope;
 
-  if (candidates.length === 0) {
-    return { status: "NOT_FOUND", matches: [], disclaimer: DISCLAIMER };
-  }
   if (candidates.length === 1) {
-    return { status: "FOUND", matches: [toMatch(candidates[0]!)], disclaimer: DISCLAIMER };
+    return {
+      status: "FOUND",
+      matches: [toMatch(candidates[0]!)],
+      corpus_scope,
+      disclaimer: DISCLAIMER,
+    };
   }
-  return { status: "AMBIGUOUS", matches: candidates.map(toMatch), disclaimer: DISCLAIMER };
+  if (candidates.length > 1) {
+    return {
+      status: "AMBIGUOUS",
+      matches: candidates.map(toMatch),
+      corpus_scope,
+      disclaimer: DISCLAIMER,
+    };
+  }
+
+  // Zero candidates — figure out whether the signature LOOKS like an
+  // instance we don't even cover.  If so, raise OUT_OF_SCOPE so the LLM
+  // doesn't conflate "fabricated" with "outside corpus".
+  const norm = normaliseSignature(parsed.sygnatura);
+  const likely_instancja = detectLikelyInstancja(norm);
+  if (likely_instancja && !corpus_scope.includes(likely_instancja)) {
+    return {
+      status: "OUT_OF_SCOPE",
+      matches: [],
+      corpus_scope,
+      likely_instancja,
+      disclaimer: DISCLAIMER,
+    };
+  }
+  return {
+    status: "NOT_FOUND",
+    matches: [],
+    corpus_scope,
+    disclaimer: DISCLAIMER,
+  };
 }

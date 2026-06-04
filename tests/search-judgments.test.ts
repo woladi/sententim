@@ -82,6 +82,7 @@ beforeAll(() => {
     legal_domain: "test",
     seed_query_count: "1",
     last_seed_at: "2025-01-01T00:00:00Z",
+    corpus_scope: JSON.stringify(["SR", "SO", "SA"]),
   }))
     manifest.run(k, v);
   seed.close();
@@ -131,5 +132,44 @@ describe("search_judgments", () => {
     const r = runSearchJudgments(db, { query: "halucynacja" });
     expect(r.total_returned).toBe(0);
     expect(r.matches).toEqual([]);
+  });
+
+  // B1 — FTS5 sanitiser must swallow special chars + reserved keywords
+  // and never let MCP error -32603 reach the caller.
+  it("(B1a) tester's repro: 'art* OR' no longer crashes", () => {
+    // Tester saw -32603 fts5 syntax error.  Now it must just return
+    // whatever `art*` (real prefix) matches — no exception, no crash.
+    const r = runSearchJudgments(db, { query: "art* OR" });
+    expect(Array.isArray(r.matches)).toBe(true);
+    // Fixture has "art. X ukk" so token `art` does hit.
+    expect(r.matches.length).toBeGreaterThan(0);
+  });
+
+  it("(B1b) all-reserved-keyword query returns empty cleanly", () => {
+    const r = runSearchJudgments(db, { query: "AND OR NOT NEAR" });
+    expect(r.total_returned).toBe(0);
+    expect(r.matches).toEqual([]);
+  });
+
+  it("(B1c) survives query with just quotes", () => {
+    const r = runSearchJudgments(db, { query: '""' });
+    expect(r.total_returned).toBe(0);
+    expect(r.matches).toEqual([]);
+  });
+
+  it("(B1d) lowercase reserved keyword is also stripped", () => {
+    const r = runSearchJudgments(db, { query: "ukk or art" });
+    // Both `ukk` and `art` are real tokens; `or` is dropped.
+    expect(r.matches.length).toBeGreaterThan(0);
+  });
+
+  // corpus_scope must show up on every response — assert against the manifest.
+  it("returns corpus_scope from manifest in every response", () => {
+    const hit = runSearchJudgments(db, { query: "ukk" });
+    const miss = runSearchJudgments(db, { query: "halucynacja" });
+    const tossed = runSearchJudgments(db, { query: "art* OR" });
+    for (const r of [hit, miss, tossed]) {
+      expect(r.corpus_scope).toEqual(["SR", "SO", "SA"]);
+    }
   });
 });
