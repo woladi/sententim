@@ -51,7 +51,7 @@ Reguła naczelna: **jeśli czegoś nie ma w bazie → `NOT_FOUND`. Nigdy nie zga
 ### Claude Code (CLI)
 
 ```bash
-claude mcp add sententim -- npx sententim-mcp
+claude mcp add sententim -- npx -y sententim
 ```
 
 ### Claude Desktop
@@ -63,7 +63,7 @@ W `claude_desktop_config.json`:
   "mcpServers": {
     "sententim": {
       "command": "npx",
-      "args": ["sententim-mcp"]
+      "args": ["-y", "sententim"]
     }
   }
 }
@@ -71,7 +71,18 @@ W `claude_desktop_config.json`:
 
 ### Cursor / Continue / inny klient MCP
 
-Transport: stdio, komenda: `npx sententim-mcp`.
+Transport: stdio, komenda: `npx -y sententim`.
+
+> **Dlaczego `npx -y sententim` (nie `sententim-mcp`)?** `npx <X>` szuka **pakietu** o nazwie `<X>` w npm registry, nie binarki. Pakiet nazywa się `sententim`. Binarka `sententim` wykrywa kontekst — jeśli stdin to pipe (czyli odpala MCP klient), startuje server stdio. Jeśli stdin to TTY (interaktywny shell), drukuje help. Stary alias `sententim-mcp` dalej działa po `npm install -g`, ale przez `npx` musisz dać pakiet jawnie: `npx -y -p sententim sententim-mcp`.
+
+### Global install (alternatywa, jednorazowa)
+
+```bash
+npm install -g sententim
+claude mcp add sententim -- sententim    # binarka na PATH
+sententim verify "II CSK 750/15"          # CLI verify
+sententim info                            # manifest bazy
+```
 
 ### Z poziomu kodu
 

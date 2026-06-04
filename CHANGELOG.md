@@ -23,8 +23,6 @@
   - Layout / dev-section housekeeping (66 tests, 0.2 file tree,
     cross-ref + search-judgments paths).
 
-All notable changes to this project will be documented here. Format follows the format produced by [Changesets](https://github.com/changesets/changesets), which lays each released version on its own `## X.Y.Z` heading. Versions track [SemVer](https://semver.org/spec/v2.0.0.html).
-
 ## 0.2.1
 
 ### Patch Changes

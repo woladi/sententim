@@ -1,10 +1,24 @@
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { JudgmentsDb } from "./db.js";
 import { runSearchJudgments, searchJudgmentsTool } from "./tools/search-judgments.js";
 import { runVerifySignature, verifySignatureTool } from "./tools/verify-signature.js";
 
-const PKG_VERSION = "0.2.0";
+// Read the version once at module load.  Layout in the installed npm
+// package: <pkg>/dist/server.js + <pkg>/package.json.  Same in dev (run
+// via tsx from src/): <repo>/src/server.ts + <repo>/package.json.
+const PKG_VERSION = (() => {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url));
+    const pkg = JSON.parse(readFileSync(join(here, "..", "package.json"), "utf8"));
+    return typeof pkg.version === "string" ? pkg.version : "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+})();
 
 export interface CreateServerOptions {
   dbPath?: string;
