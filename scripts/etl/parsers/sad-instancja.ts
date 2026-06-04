@@ -19,9 +19,9 @@ export interface SadCourt {
 }
 
 const COMMON_PATTERNS: Array<{ re: RegExp; instancja: Instancja }> = [
-  { re: /\bs[aą]d\s+rejonowy\b/i,    instancja: "SR" },
+  { re: /\bs[aą]d\s+rejonowy\b/i, instancja: "SR" },
   { re: /\bs[aą]d\s+okr[eę]gowy\b/i, instancja: "SO" },
-  { re: /\bs[aą]d\s+apelacyjny\b/i,  instancja: "SA" },
+  { re: /\bs[aą]d\s+apelacyjny\b/i, instancja: "SA" },
   { re: /\bs[aą]d\s+najwy[zż]szy\b/i, instancja: "SN" },
 ];
 
@@ -65,10 +65,15 @@ export function canonicalSadName(input: SadCourt): string {
   const name = input.courtName?.trim();
   if (name) return name;
   switch (input.courtType) {
-    case "SUPREME": return "Sąd Najwyższy";
-    case "CONSTITUTIONAL_TRIBUNAL": return "Trybunał Konstytucyjny";
-    case "ADMINISTRATIVE": return "Sąd Administracyjny";
-    case "COMMON": return "Sąd Powszechny";
-    default: return "Nieznany";
+    case "SUPREME":
+      return "Sąd Najwyższy";
+    case "CONSTITUTIONAL_TRIBUNAL":
+      return "Trybunał Konstytucyjny";
+    case "ADMINISTRATIVE":
+      return "Sąd Administracyjny";
+    case "COMMON":
+      return "Sąd Powszechny";
+    default:
+      return "Nieznany";
   }
 }

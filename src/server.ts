@@ -1,8 +1,5 @@
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
+import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { JudgmentsDb } from "./db.js";
 import { runSearchJudgments, searchJudgmentsTool } from "./tools/search-judgments.js";
 import { runVerifySignature, verifySignatureTool } from "./tools/verify-signature.js";

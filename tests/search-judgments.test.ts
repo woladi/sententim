@@ -2,10 +2,10 @@
  * search_judgments contract — fixture DB exercise.
  */
 
-import Database from "better-sqlite3";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { JudgmentsDb } from "../src/db.js";
 import { normaliseSignature } from "../src/normalize.js";
@@ -30,33 +30,60 @@ beforeAll(() => {
   ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
 
   insert.run(
-    "I C 52/26", normaliseSignature("I C 52/26"),
-    "Sąd Rejonowy w Piszu", "SR", "2026-04-29",
-    "oddala", null, null,
+    "I C 52/26",
+    normaliseSignature("I C 52/26"),
+    "Sąd Rejonowy w Piszu",
+    "SR",
+    "2026-04-29",
+    "oddala",
+    null,
+    null,
     JSON.stringify(["art. 30 ukk", "art. 45 ukk", "art. 555 k.c."]),
-    "https://example.com/1", "2026-01-01T00:00:00Z", "a".repeat(64),
+    "https://example.com/1",
+    "2026-01-01T00:00:00Z",
+    "a".repeat(64),
   );
   insert.run(
-    "III Ca 100/25", normaliseSignature("III Ca 100/25"),
-    "Sąd Okręgowy w Krakowie", "SO", "2025-11-15",
-    "oddala", null, null,
+    "III Ca 100/25",
+    normaliseSignature("III Ca 100/25"),
+    "Sąd Okręgowy w Krakowie",
+    "SO",
+    "2025-11-15",
+    "oddala",
+    null,
+    null,
     JSON.stringify(["art. 45 ukk"]),
-    "https://example.com/2", "2026-01-01T00:00:00Z", "b".repeat(64),
+    "https://example.com/2",
+    "2026-01-01T00:00:00Z",
+    "b".repeat(64),
   );
   insert.run(
-    "I ACa 50/24", normaliseSignature("I ACa 50/24"),
-    "Sąd Apelacyjny w Warszawie", "SA", "2024-08-20",
-    "oddala", 1, null,
+    "I ACa 50/24",
+    normaliseSignature("I ACa 50/24"),
+    "Sąd Apelacyjny w Warszawie",
+    "SA",
+    "2024-08-20",
+    "oddala",
+    1,
+    null,
     JSON.stringify(["art. 69 pr.bank"]),
-    "https://example.com/3", "2026-01-01T00:00:00Z", "c".repeat(64),
+    "https://example.com/3",
+    "2026-01-01T00:00:00Z",
+    "c".repeat(64),
   );
 
   const manifest = seed.prepare("INSERT INTO manifest(key,value) VALUES (?,?)");
   for (const [k, v] of Object.entries({
-    version: "0.0.0-test", built_at: "2025-01-01T00:00:00Z",
-    schema_version: "1", total: "3", source: "SAOS",
-    legal_domain: "test", seed_query_count: "1", last_seed_at: "2025-01-01T00:00:00Z",
-  })) manifest.run(k, v);
+    version: "0.0.0-test",
+    built_at: "2025-01-01T00:00:00Z",
+    schema_version: "1",
+    total: "3",
+    source: "SAOS",
+    legal_domain: "test",
+    seed_query_count: "1",
+    last_seed_at: "2025-01-01T00:00:00Z",
+  }))
+    manifest.run(k, v);
   seed.close();
 
   db = new JudgmentsDb({ path: dbPath });

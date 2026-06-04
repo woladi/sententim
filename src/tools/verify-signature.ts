@@ -9,7 +9,9 @@ export const verifySignatureSchema = z.object({
   sygnatura: z
     .string()
     .min(1)
-    .describe("Sygnatura wyroku, np. 'II CSK 750/15'. Tolerujemy wielkość liter, spacje i kropki w skrótach."),
+    .describe(
+      "Sygnatura wyroku, np. 'II CSK 750/15'. Tolerujemy wielkość liter, spacje i kropki w skrótach.",
+    ),
   sad: z
     .string()
     .optional()

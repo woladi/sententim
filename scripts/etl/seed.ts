@@ -16,7 +16,7 @@
 
 import { performance } from "node:perf_hooks";
 import { buildDatabase } from "./build-db.js";
-import { ensureDir, rawJsonl, RAW_DIR, STAGING_DIR } from "./lib/paths.js";
+import { RAW_DIR, STAGING_DIR, ensureDir, rawJsonl } from "./lib/paths.js";
 import { normaliseSaos, summariseNormalisation } from "./normalize.js";
 import { fetchSaosJudgments } from "./sources/saos.js";
 

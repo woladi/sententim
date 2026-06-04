@@ -9,8 +9,8 @@
  * runs except the staged JSONLs.
  */
 
-import Database from "better-sqlite3";
 import { existsSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import Database from "better-sqlite3";
 import { readJsonl } from "./lib/jsonl.js";
 import { DATA_DIR, DB_PATH, MANIFEST_PATH, SCHEMA_PATH, stagedJsonl } from "./lib/paths.js";
 import type { StagedJudgment } from "./normalize.js";

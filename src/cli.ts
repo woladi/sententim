@@ -48,7 +48,9 @@ async function main(): Promise<number> {
         return 0;
       }
       case "verify": {
-        const sygnatura = rest.filter((r) => !r.startsWith("--") && !isFlagValue(rest, r)).join(" ");
+        const sygnatura = rest
+          .filter((r) => !r.startsWith("--") && !isFlagValue(rest, r))
+          .join(" ");
         if (!sygnatura) {
           process.stderr.write("Usage: sententim verify <sygnatura> [--sad …] [--data …]\n");
           return 2;

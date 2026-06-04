@@ -8,11 +8,11 @@
  *   (4) lookup <10 ms
  */
 
-import Database from "better-sqlite3";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { performance } from "node:perf_hooks";
+import Database from "better-sqlite3";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { JudgmentsDb } from "../src/db.js";
 import { normaliseSignature } from "../src/normalize.js";

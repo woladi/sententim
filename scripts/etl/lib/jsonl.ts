@@ -15,12 +15,10 @@ import { createReadStream, createWriteStream, existsSync } from "node:fs";
  * parsed at *string* level; a regex literal would refuse the raw chars
  * because regex grammar still treats them as line terminators.
  */
-const RE_UNICODE_LS_PS = new RegExp("[\\u2028\\u2029]", "g");
+const RE_UNICODE_LS_PS = /[\u2028\u2029]/g;
 
 function safeStringify(obj: unknown): string {
-  return JSON.stringify(obj).replace(RE_UNICODE_LS_PS, (c) =>
-    c === " " ? "\\u2028" : "\\u2029",
-  );
+  return JSON.stringify(obj).replace(RE_UNICODE_LS_PS, (c) => (c === " " ? "\\u2028" : "\\u2029"));
 }
 
 export function openJsonlWriter(path: string) {

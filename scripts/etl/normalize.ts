@@ -78,10 +78,7 @@ export interface NormaliseResult {
  * INSERT time via UNIQUE constraint.
  */
 export async function normaliseSaos(opts: NormaliseInputOptions = {}): Promise<NormaliseResult> {
-  const inputs = opts.inputs ?? [
-    rawJsonl("saos", "legalBase"),
-    rawJsonl("saos", "all"),
-  ];
+  const inputs = opts.inputs ?? [rawJsonl("saos", "legalBase"), rawJsonl("saos", "all")];
   const out = stagedJsonl("judgments");
 
   const seenSaosIds = new Set<number>();
@@ -97,7 +94,7 @@ export async function normaliseSaos(opts: NormaliseInputOptions = {}): Promise<N
 
   let total = 0;
   let skipped = 0;
-  let unresolvedInstancja = 0;
+  const unresolvedInstancja = 0;
   let unresolvedSentencja = 0;
 
   for (const inFile of inputs) {
@@ -210,9 +207,7 @@ function projectOne(raw: SaosJudgment, dataPobrania: string): StagedJudgment | n
     .join("\n");
   const podstawa_prawna = extractPodstawaPrawna(`${fromRegulations}\n${text}`);
 
-  const sourceUrl =
-    raw.source?.judgmentUrl ??
-    `https://www.saos.org.pl/judgments/${raw.id}`;
+  const sourceUrl = raw.source?.judgmentUrl ?? `https://www.saos.org.pl/judgments/${raw.id}`;
 
   const sha256 = createHash("sha256")
     .update(raw.textContent ?? "", "utf8")

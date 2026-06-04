@@ -1,7 +1,7 @@
-import Database, { type Database as Db } from "better-sqlite3";
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import Database, { type Database as Db } from "better-sqlite3";
 import { normaliseSignature } from "./normalize.js";
 import type { Judgment, Manifest } from "./types.js";
 

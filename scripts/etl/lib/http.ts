@@ -12,10 +12,7 @@ export interface FetchJsonOptions {
   timeoutMs?: number;
 }
 
-export async function fetchJson<T = unknown>(
-  url: string,
-  opts: FetchJsonOptions = {},
-): Promise<T> {
+export async function fetchJson<T = unknown>(url: string, opts: FetchJsonOptions = {}): Promise<T> {
   const text = await fetchText(url, {
     ...opts,
     headers: { Accept: "application/json", ...opts.headers },
@@ -47,10 +44,7 @@ export async function fetchText(url: string, opts: FetchJsonOptions = {}): Promi
       if (giveUpOn.has(res.status)) {
         throw new HttpError(`HTTP ${res.status} ${res.statusText} on ${url}`, res.status);
       }
-      lastError = new HttpError(
-        `HTTP ${res.status} ${res.statusText} on ${url}`,
-        res.status,
-      );
+      lastError = new HttpError(`HTTP ${res.status} ${res.statusText} on ${url}`, res.status);
     } catch (err) {
       lastError = err;
       if (err instanceof HttpError && giveUpOn.has(err.status)) throw err;

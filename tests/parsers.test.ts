@@ -58,7 +58,9 @@ describe("extractPodstawaPrawna", () => {
   });
 
   it("extracts art. 45 ukk in canonical form", () => {
-    expect(extractPodstawaPrawna("art. 45 ustawy o kredycie konsumenckim")).toContain("art. 45 ukk");
+    expect(extractPodstawaPrawna("art. 45 ustawy o kredycie konsumenckim")).toContain(
+      "art. 45 ukk",
+    );
   });
 
   it("extracts art. 75c pr.bank", () => {
@@ -96,19 +98,19 @@ describe("resolveInstancja", () => {
     expect(resolveInstancja({ courtType: "CONSTITUTIONAL_TRIBUNAL", courtName: null })).toBe("TK");
   });
   it("maps common-court name 'Sąd Rejonowy' to SR", () => {
-    expect(
-      resolveInstancja({ courtType: "COMMON", courtName: "Sąd Rejonowy w Olsztynie" }),
-    ).toBe("SR");
+    expect(resolveInstancja({ courtType: "COMMON", courtName: "Sąd Rejonowy w Olsztynie" })).toBe(
+      "SR",
+    );
   });
   it("maps common-court name 'Sąd Okręgowy' to SO", () => {
-    expect(
-      resolveInstancja({ courtType: "COMMON", courtName: "Sąd Okręgowy w Warszawie" }),
-    ).toBe("SO");
+    expect(resolveInstancja({ courtType: "COMMON", courtName: "Sąd Okręgowy w Warszawie" })).toBe(
+      "SO",
+    );
   });
   it("maps common-court name 'Sąd Apelacyjny' to SA", () => {
-    expect(
-      resolveInstancja({ courtType: "COMMON", courtName: "Sąd Apelacyjny w Krakowie" }),
-    ).toBe("SA");
+    expect(resolveInstancja({ courtType: "COMMON", courtName: "Sąd Apelacyjny w Krakowie" })).toBe(
+      "SA",
+    );
   });
   it("maps NSA / WSA", () => {
     expect(
@@ -128,9 +130,9 @@ describe("resolveInstancja", () => {
 
 describe("canonicalSadName", () => {
   it("uses provided court name", () => {
-    expect(
-      canonicalSadName({ courtType: "COMMON", courtName: "Sąd Rejonowy w Olsztynie" }),
-    ).toBe("Sąd Rejonowy w Olsztynie");
+    expect(canonicalSadName({ courtType: "COMMON", courtName: "Sąd Rejonowy w Olsztynie" })).toBe(
+      "Sąd Rejonowy w Olsztynie",
+    );
   });
   it("falls back to 'Sąd Najwyższy' for SUPREME with no name", () => {
     expect(canonicalSadName({ courtType: "SUPREME", courtName: null })).toBe("Sąd Najwyższy");

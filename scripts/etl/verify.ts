@@ -34,9 +34,7 @@ function main(): void {
 
   const total = db.count();
   if (total !== m.total) {
-    process.stderr.write(
-      `▸ warning · manifest.total=${m.total} but COUNT(*)=${total}\n`,
-    );
+    process.stderr.write(`▸ warning · manifest.total=${m.total} but COUNT(*)=${total}\n`);
   }
 
   // A pretty-much-arbitrary signature that the corpus is likely to have

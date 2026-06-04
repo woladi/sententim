@@ -36,7 +36,8 @@ const ACTS: ActAlias[] = [
 // Match an article number (possibly followed by a letter or fragment like "75c").
 // We deliberately don't try to parse ust./pkt suffixes — they make the dedup
 // noisy without much benefit at this stage.
-const ART_RE = /\bart\.?\s*(\d+[a-z]?)\s*(?:[a-zA-ZĄĆĘŁŃÓŚŹŻąćęłńóśźż.,\s]*?)\s+(ustaw[ay]\s+o\s+kredycie\s+konsumenckim|praw[ao]\s+bankow\w*|pr\.?\s*bank|kodeks(?:u|owi|em|ie)?\s+cywiln\w*|kodeks(?:u|owi|em|ie)?\s+karn\w*|kodeks(?:u|owi|em|ie)?\s+post[eę]powania\s+cywiln\w*|kodeks(?:u|owi|em|ie)?\s+post[eę]powania\s+karn\w*|kodeks(?:u|owi|em|ie)?\s+pracy|konstytucji|rozporz[aą]dzeni[ae]\s+2016\/679|\bRODO\b|ustaw[ay]\s+o\s+ochronie\s+konkurencji\s+i\s+konsument\w*|u\.?k\.?k|UKK|k\.?c|k\.?k|k\.?p\.?c|k\.?p\.?k|k\.?p)/giu;
+const ART_RE =
+  /\bart\.?\s*(\d+[a-z]?)\s*(?:[a-zA-ZĄĆĘŁŃÓŚŹŻąćęłńóśźż.,\s]*?)\s+(ustaw[ay]\s+o\s+kredycie\s+konsumenckim|praw[ao]\s+bankow\w*|pr\.?\s*bank|kodeks(?:u|owi|em|ie)?\s+cywiln\w*|kodeks(?:u|owi|em|ie)?\s+karn\w*|kodeks(?:u|owi|em|ie)?\s+post[eę]powania\s+cywiln\w*|kodeks(?:u|owi|em|ie)?\s+post[eę]powania\s+karn\w*|kodeks(?:u|owi|em|ie)?\s+pracy|konstytucji|rozporz[aą]dzeni[ae]\s+2016\/679|\bRODO\b|ustaw[ay]\s+o\s+ochronie\s+konkurencji\s+i\s+konsument\w*|u\.?k\.?k|UKK|k\.?c|k\.?k|k\.?p\.?c|k\.?p\.?k|k\.?p)/giu;
 
 function shortFor(actText: string): string | null {
   for (const a of ACTS) {

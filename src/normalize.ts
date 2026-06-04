@@ -17,8 +17,24 @@
  */
 
 const POLISH_DIACRITICS: Record<string, string> = {
-  ą: "a", ć: "c", ę: "e", ł: "l", ń: "n", ó: "o", ś: "s", ź: "z", ż: "z",
-  Ą: "A", Ć: "C", Ę: "E", Ł: "L", Ń: "N", Ó: "O", Ś: "S", Ź: "Z", Ż: "Z",
+  ą: "a",
+  ć: "c",
+  ę: "e",
+  ł: "l",
+  ń: "n",
+  ó: "o",
+  ś: "s",
+  ź: "z",
+  ż: "z",
+  Ą: "A",
+  Ć: "C",
+  Ę: "E",
+  Ł: "L",
+  Ń: "N",
+  Ó: "O",
+  Ś: "S",
+  Ź: "Z",
+  Ż: "Z",
 };
 
 export function stripDiacritics(input: string): string {
@@ -34,18 +50,20 @@ export function stripDiacritics(input: string): string {
  *   "C-311/18 P"           →  "C-311/18 P"
  */
 export function displaySignature(raw: string): string {
-  return raw
-    .trim()
-    .toUpperCase()
-    .replace(/\s*\/\s*/g, "/")
-    // Strip dots in abbreviations like "C.S.K." → "CSK".
-    // A letter+dot is removed when followed by:
-    //   · another letter+optional-dot (mid-abbreviation, "C.S")
-    //   · whitespace (end of abbreviation, "K. 822")
-    //   · end of input ("K." at EOL)
-    //   · a slash ("K./22")
-    .replace(/([A-ZĄĆĘŁŃÓŚŹŻ])\.(?=[A-ZĄĆĘŁŃÓŚŹŻ]\.?|\s|\/|$)/g, "$1")
-    .replace(/\s+/g, " ");
+  return (
+    raw
+      .trim()
+      .toUpperCase()
+      .replace(/\s*\/\s*/g, "/")
+      // Strip dots in abbreviations like "C.S.K." → "CSK".
+      // A letter+dot is removed when followed by:
+      //   · another letter+optional-dot (mid-abbreviation, "C.S")
+      //   · whitespace (end of abbreviation, "K. 822")
+      //   · end of input ("K." at EOL)
+      //   · a slash ("K./22")
+      .replace(/([A-ZĄĆĘŁŃÓŚŹŻ])\.(?=[A-ZĄĆĘŁŃÓŚŹŻ]\.?|\s|\/|$)/g, "$1")
+      .replace(/\s+/g, " ")
+  );
 }
 
 /**

@@ -98,7 +98,11 @@ export interface SaosFetchResult {
 export async function fetchSaosJudgments(opts: SaosFetchOptions = {}): Promise<SaosFetchResult> {
   const tag = opts.outFile
     ? "custom"
-    : (opts.legalBase ? "legalBase" : opts.all ? "all" : (opts.courtType ?? "common").toLowerCase());
+    : opts.legalBase
+      ? "legalBase"
+      : opts.all
+        ? "all"
+        : (opts.courtType ?? "common").toLowerCase();
   const outFile = opts.outFile ?? rawJsonl("saos", tag);
   const writer = openJsonlWriter(outFile);
   const delay = opts.delayMs ?? POLITE_DELAY_MS;

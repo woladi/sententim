@@ -6,13 +6,13 @@
  */
 
 export type Instancja =
-  | "SR"   // Sąd Rejonowy
-  | "SO"   // Sąd Okręgowy
-  | "SA"   // Sąd Apelacyjny
-  | "SN"   // Sąd Najwyższy
-  | "NSA"  // Naczelny Sąd Administracyjny
-  | "WSA"  // Wojewódzki Sąd Administracyjny
-  | "TK"   // Trybunał Konstytucyjny
+  | "SR" // Sąd Rejonowy
+  | "SO" // Sąd Okręgowy
+  | "SA" // Sąd Apelacyjny
+  | "SN" // Sąd Najwyższy
+  | "NSA" // Naczelny Sąd Administracyjny
+  | "WSA" // Wojewódzki Sąd Administracyjny
+  | "TK" // Trybunał Konstytucyjny
   | "TSUE"; // Trybunał Sprawiedliwości UE
 
 export type SentencjaTyp =
