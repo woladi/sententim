@@ -1,6 +1,6 @@
 {
   "name": "sententim",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Deterministyczny weryfikator sygnatur wyroków polskich sądów — MCP, lokalnie, offline, zero LLM w runtime. Jeśli wyrok nie istnieje w bazie → NOT_FOUND, nigdy halucynacji.",
   "keywords": [
     "mcp",
