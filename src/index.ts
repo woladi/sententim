@@ -1,8 +1,32 @@
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createServer } from "./server.js";
 
+// Public API — what consumers get when they `import { … } from "sententim"`.
+//
+// MCP transport entrypoint:
 export { createServer } from "./server.js";
+// Database wrapper (open, query, close):
 export { JudgmentsDb } from "./db.js";
+// Both tool runners + their zod schemas — useful when you want to call
+// the same logic programmatically without going through stdio JSON-RPC.
+export {
+  runVerifySignature,
+  verifySignatureSchema,
+  verifySignatureTool,
+  DISCLAIMER,
+} from "./tools/verify-signature.js";
+export {
+  runSearchJudgments,
+  searchJudgmentsSchema,
+  searchJudgmentsTool,
+} from "./tools/search-judgments.js";
+// Helpers most callers won't need but we expose for completeness:
+export {
+  displaySignature,
+  normaliseSignature,
+  signaturesMatch,
+  stripDiacritics,
+} from "./normalize.js";
 export type * from "./types.js";
 
 /**

@@ -5,9 +5,12 @@
 Sprawdzasz: czy ten wyrok istnieje?
 Otrzymujesz: `FOUND` / `NOT_FOUND` / `AMBIGUOUS` — z twardymi faktami ze źródła.
 
-[![npm](https://img.shields.io/npm/v/sententim?style=flat-square&color=000000)](https://www.npmjs.com/package/sententim)
+[![npm version](https://img.shields.io/npm/v/sententim?style=flat-square&color=cb3837&label=npm)](https://www.npmjs.com/package/sententim)
+[![npm types](https://img.shields.io/npm/types/sententim?style=flat-square&color=3178c6)](https://www.npmjs.com/package/sententim)
+[![license](https://img.shields.io/npm/l/sententim?style=flat-square)](LICENSE)
+[![node](https://img.shields.io/node/v/sententim?style=flat-square&color=339933)](package.json)
 [![ci](https://img.shields.io/github/actions/workflow/status/woladi/sententim/ci.yml?branch=main&style=flat-square&label=ci)](https://github.com/woladi/sententim/actions/workflows/ci.yml)
-[![license](https://img.shields.io/github/license/woladi/sententim?style=flat-square)](LICENSE)
+[![provenance](https://img.shields.io/badge/Sigstore-provenance%20attested-2A6F50?style=flat-square)](https://www.npmjs.com/package/sententim)
 [![MCP](https://img.shields.io/badge/Model_Context_Protocol-1.x-black?style=flat-square)](https://modelcontextprotocol.io)
 
 ---
@@ -24,26 +27,28 @@ Reguła naczelna: **jeśli czegoś nie ma w bazie → `NOT_FOUND`. Nigdy nie zga
 
 ## Czym to NIE jest
 
-- ❌ Nie jest wyszukiwarką semantyczną (FTS5 jest, ale narzędzie `search_judgments` przyjdzie w v0.2 — i też deterministycznie)
 - ❌ Nie generuje streszczeń, omówień ani interpretacji
 - ❌ Nie jest alternatywą dla Lex / Legalis — to jedno małe, precyzyjne narzędzie do jednej rzeczy
 - ❌ Nie korzysta z LLM w runtime — w paczce nie ma ani jednego API-call do chmury
+- ❌ Nie indeksuje pełnego tekstu wyroku — FTS5 chodzi tylko po sygnaturach, sądach i podstawie prawnej
 
-## Co jest w paczce (MVP-1)
+## Co jest w paczce
 
 | Pole | Wartość |
 |---|---|
+| **Wersja** | sententim@0.2.x · [pełen CHANGELOG](CHANGELOG.md) |
 | **Domena prawna** | Sankcja kredytu darmowego (art. 45 ukk + art. 75c pr.bank) |
 | **Źródło** | SAOS · System Analizy Orzeczeń Sądowych (publiczne, otwarte dane) |
-| **Korpus (v0.1.0)** | **1272 wyroków** · zakres dat 2012-02-27 → 2026-05-06 |
+| **Korpus** | **1272 wyroków** · zakres dat 2012-02-27 → 2026-05-06 |
 | **Rozkład instancji** | SO 718 · SR 458 · SA 96 · SN 0 (sankcja KD to z natury sprawa I-instancyjna) |
-| **DB size** | 1.17 MB · pełen lookup `0.05-0.4 ms` |
-| **Tooling** | Jedno narzędzie MCP: `verify_signature` |
+| **DB size** | 1.17 MB · pełen lookup `0.05 – 0.4 ms` |
+| **Toole MCP** | `verify_signature` · `search_judgments` |
 | **Audyt** | Każdy rekord: `zrodlo_url` + `data_pobrania` + `sha256(textContent)` |
+| **Provenance** | Sigstore SLSA v1 attestation na każdej publikacji npm |
 
 ## Quick start
 
-### Claude Code
+### Claude Code (CLI)
 
 ```bash
 claude mcp add sententim -- npx sententim-mcp
@@ -64,25 +69,39 @@ W `claude_desktop_config.json`:
 }
 ```
 
-### Cursor / Continue / any MCP client
+### Cursor / Continue / inny klient MCP
 
 Transport: stdio, komenda: `npx sententim-mcp`.
 
 ### Z poziomu kodu
 
 ```ts
-import { JudgmentsDb } from "sententim";
-import { runVerifySignature } from "sententim/dist/tools/verify-signature.js";
+import { JudgmentsDb, runVerifySignature, runSearchJudgments } from "sententim";
 
-const db = new JudgmentsDb();
-const r = runVerifySignature(db, { sygnatura: "II CSK 750/15" });
-// {
-//   status: "FOUND",
-//   matches: [{ sygnatura, sad, instancja, data_orzeczenia,
-//                sentencja_typ, podstawa_prawna, zrodlo_url, ... }],
-//   disclaimer: "Dane deterministyczne ze źródła publicznego. ..."
-// }
+const db = new JudgmentsDb();              // baza wbudowana w paczkę
+
+// (1) weryfikacja
+runVerifySignature(db, { sygnatura: "II CSK 750/15" });
+//   → { status: "FOUND" | "NOT_FOUND" | "AMBIGUOUS",
+//       matches: JudgmentMatch[], disclaimer }
+
+// (2) wyszukiwanie
+runSearchJudgments(db, { query: "apelacyjny Warszawa", limit: 5 });
+//   → { query, instancja: "ALL", total_returned, matches, disclaimer }
+
+db.close();
 ```
+
+### Weryfikacja Sigstore provenance
+
+Każda publikacja na npm jest atestowana przez Sigstore — supply-chain proof, że konkretny tarball powstał z konkretnego commita w `woladi/sententim` przez OIDC-driven GitHub Actions:
+
+```bash
+npm audit signatures sententim
+# pokaże: signatures: 1 (provenance), ✓ verified
+```
+
+---
 
 ## Kontrakty narzędzi MCP
 
@@ -97,12 +116,7 @@ input: {
 
 output: {
   status:  "FOUND" | "NOT_FOUND" | "AMBIGUOUS",
-  matches: Array<{
-    sygnatura, sad, instancja,
-    data_orzeczenia, sentencja_typ,
-    prawomocny, uchylony_przez,
-    podstawa_prawna, zrodlo_url, data_pobrania
-  }>,
+  matches: JudgmentMatch[],
   disclaimer: "Dane deterministyczne ze źródła publicznego. Zweryfikuj treść w źródle. Nie stanowi porady prawnej."
 }
 ```
@@ -113,9 +127,9 @@ output: {
 | `NOT_FOUND` | zero trafień — **nie cytuj tej sygnatury** | `[]` |
 | `AMBIGUOUS` | ta sama sygnatura w ≥2 sądach — zwracamy wszystkich kandydatów, **bez wybierania** | `[{...}, {...}, …]` |
 
-### Tool: `search_judgments` *(v0.2)*
+### Tool: `search_judgments`
 
-Wyszukiwarka FTS5 po sygnaturze, nazwie sądu i podstawie prawnej. Akcento-niewrażliwa, naiwna na polską morfologię (`Warszawa` znajduje `Warszawie` przez stem trimming).
+FTS5 po sygnaturze, nazwie sądu i podstawie prawnej. Akcento-niewrażliwa (`unicode61 remove_diacritics=2`), naiwna na polską morfologię (`Warszawa` znajduje `Warszawie` przez stem trimming).
 
 ```ts
 input: {
@@ -128,12 +142,12 @@ output: {
   query: string,
   instancja: "SR"|"SO"|"SA"|"SN"|"NSA"|"WSA"|"TK"|"TSUE"|"ALL",
   total_returned: number,
-  matches: Array<JudgmentMatch>,   // ten sam shape co verify_signature
+  matches: JudgmentMatch[],
   disclaimer: string
 }
 ```
 
-**Ważne**: search wciąż obowiązuje reguła naczelna. `total_returned: 0` ≠ "wyrok nie istnieje" — to "nie ma w tej bazie". Nie cytuj na podstawie braku trafień.
+**Ważne**: w search wciąż obowiązuje reguła naczelna. `total_returned: 0` ≠ "wyrok nie istnieje" — to "nie ma w tej bazie". Nie cytuj na podstawie braku trafień.
 
 ## Schemat danych
 
@@ -145,14 +159,16 @@ type Judgment = {
   instancja:       "SR"|"SO"|"SA"|"SN"|"NSA"|"WSA"|"TK"|"TSUE";
   data_orzeczenia: string;                    // ISO YYYY-MM-DD
   sentencja_typ:   "oddala"|"uwzglednia"|"uchyla_przekazuje"|"zmienia"|"umarza"|"inne"|null;
-  prawomocny:      0|1|null;                  // v0.2: SA/SN/NSA/TK/TSUE → 1 by construction; SR/SO via cross-ref
-  uchylony_przez:  string|null;               // v0.2: backfilled przez cross-ref pass na narrow corpus (rzadko)
+  prawomocny:      0|1|null;                  // SA/SN/NSA/TK/TSUE → 1 by construction; SR/SO via cross-ref
+  uchylony_przez:  string|null;               // backfilled przez cross-ref pass (rzadko na narrow corpus)
   podstawa_prawna: string[];                  // ["art. 45 ukk", "art. 75c pr.bank"]
   zrodlo_url:      string;
   data_pobrania:   string;                    // ISO timestamp
   sha256:          string;                    // hash surowego textContent (audyt)
 };
 ```
+
+`JudgmentMatch` (zwracany przez oba toole MCP) to projekcja `Judgment` bez `sygnatura_norm` i `sha256` — pola audytowe nie wyciekają przez MCP.
 
 Każde pole pochodzi z deterministycznej ekstrakcji — pełna lista parserów: `scripts/etl/parsers/`.
 
@@ -163,18 +179,19 @@ Każde pole pochodzi z deterministycznej ekstrakcji — pełna lista parserów: 
     SAOS REST API ──── seed.ts ─────┐
                                     │
                                     ▼
-                            data/judgments.db                ← (commited do repo,
-                            (~1300 wierszy, FTS5)              shipowane w paczce npm)
+                            data/judgments.db                ← committed do repo,
+                            (~1300 wierszy, FTS5)              shipped w paczce npm
                                     │
                                     │ better-sqlite3 (sync, PRAGMA query_only=1)
                                     ▼
                             sententim-mcp · stdio            ← runtime: 0 LLM, 0 sieci
                                     │
-                                    ▼
-                            verify_signature
-                                    │
-                                    ▼
-                            FOUND | NOT_FOUND | AMBIGUOUS
+                            ┌───────┴────────┐
+                            ▼                ▼
+                    verify_signature   search_judgments
+                            │                │
+                            ▼                ▼
+                  FOUND/NOT_FOUND/AMBIGUOUS  ranked matches
 ```
 
 | Komponent | Stack |
@@ -183,21 +200,22 @@ Każde pole pochodzi z deterministycznej ekstrakcji — pełna lista parserów: 
 | Runtime | better-sqlite3 (sync), prepared statements, PRAGMA query_only=1 |
 | MCP | @modelcontextprotocol/sdk 1.x, stdio transport |
 | ETL | TypeScript pure-fn — zero LLM, zero zewnętrznych API poza SAOS |
+| CI/CD | GitHub Actions · npm Trusted Publishing (OIDC) · Sigstore provenance |
 
 ## Limity i znane luki
 
-- **`prawomocny` w v0.2**: SA/SN/NSA/TK/TSUE → `1` z definicji; SR/SO → `1` tylko gdy w korpusie istnieje appellate ze `sentencja_typ=oddala` referujące tę sygnaturę; inaczej `NULL`. Na obecnym wąskim korpusie (1272 rekordów) → 96 by-instance + 19 by-cross-ref = **115 prawomocnych**, 1157 NULL.
+- **`prawomocny`**: SA/SN/NSA/TK/TSUE → `1` z definicji; SR/SO → `1` tylko gdy w korpusie istnieje appellate ze `sentencja_typ=oddala` referujące tę sygnaturę; inaczej `NULL`. Na obecnym wąskim korpusie (1272 rekordów) → 96 by-instance + 19 by-cross-ref = **115 prawomocnych**, 1157 NULL.
 - **`uchylony_przez`** — backfilluje cross-ref pass na podstawie wzorca "sygn. akt X" w textContent appellate'ów `uchyla_przekazuje`. Na narrow corpus daje **0 trafień** (w domenie sankcji KD "uchyla" to zwykle self-reference do `wyroku zaocznego`/`nakazu zapłaty` w tym samym sądzie, nie wyższa instancja). Pasuje do roadmap v0.3 z szerszym korpusem.
 - **`sentencja_typ` `NULL` ~31%** — świadomie zamiast zgadywać `'inne'`. Najczęściej compound rulings ("uchyla w części, w pozostałej oddala") które wymagają mocniejszej heurystyki.
-- **search_judgments**: stem-aware ale nie morfologia — `Warszawa→Warszaw*` łapie "Warszawie/Warszawy", ale rzadkie odmiany mogą umknąć. Wbudowany `unicode61 remove_diacritics=2` (akcento-niewrażliwie).
-- **search nie szuka po pełnym tekście** wyroku — FTS5 indeksuje tylko `(sygnatura, sygnatura_norm, podstawa_prawna, sad)`. Pełen tekst nie ląduje w bazie (sha256 jako audyt). Pytanie typu "RODO" znajdzie tylko gdy "RODO" jest w `podstawa_prawna`.
-- **CJEU / TSUE wyłączone** — kod istnieje pod flagą `SENTENTIM_ENABLE_CJEU=1`, ale integracja z nowym deterministycznym schematem wymaga przeprojektowania (roadmap v0.5).
+- **`search_judgments`** — stem-aware ale nie pełna morfologia. `Warszawa→Warszaw*` łapie "Warszawie/Warszawy", ale rzadkie odmiany mogą umknąć.
+- **`search_judgments` nie szuka po pełnym tekście** wyroku — FTS5 indeksuje tylko `(sygnatura, sygnatura_norm, podstawa_prawna, sad)`. Pełen tekst nie ląduje w bazie (sha256 jako audyt). Pytanie typu "RODO" znajdzie tylko gdy "RODO" jest w `podstawa_prawna`.
+- **CJEU / TSUE wyłączone** — kod istnieje pod flagą `SENTENTIM_ENABLE_CJEU=1`, ale integracja z deterministycznym schematem wymaga przeprojektowania (roadmap v0.5).
 - **Daty filtrowane** do zakresu `1990-01-01 ... dzisiaj+1d` (literówki w źródle typu „3013-…" są odrzucane).
 
 ## Roadmap
 
 - **v0.1** — `verify_signature`, sankcja kredytu darmowego, SAOS.
-- **v0.2** — `search_judgments` (FTS5), prawomocny heurystyka + cross-ref pass dla SR/SO. *Tu jesteś.*
+- **v0.2** — `search_judgments` (FTS5), prawomocny heurystyka + cross-ref pass dla SR/SO, OIDC Trusted Publishing. *Tu jesteś.*
 - **v0.3** — Druga domena prawna (rozszerzenie korpusu seedu) + pełniejszy cross-ref pass dla `uchylony_przez`.
 - **v0.4** — Scraper sn.pl dla SN post-2016 (SAOS-owy SN zamrożony na 2016-06-22).
 - **v0.5** — Aktywacja CJEU/TSUE (osobny schema-extension dla ECLI + procedural lang).
@@ -210,7 +228,7 @@ Streszczenia LLM — **tylko z human-in-the-loop i flagą provenance**, **nigdy*
 pnpm install              # patrz: native build niżej
 pnpm typecheck
 pnpm lint
-pnpm test                 # 53 testów, wszystko in-memory (bez sieci)
+pnpm test                 # 66 testów, wszystko in-memory (bez sieci)
 
 pnpm etl:seed             # ~15-20 min, lokalnie, produkuje data/judgments.db
 pnpm etl:seed --max=50    # smoke (~30s, nie produkuje ship-grade DB)
@@ -221,7 +239,7 @@ pnpm build                # → dist/ (ESM + .d.ts + maps)
 
 ### Native build (better-sqlite3)
 
-`pnpm 11` blokuje domyślnie buildy natywne. Repo wnosi `pnpm-workspace.yaml` z `onlyBuiltDependencies` — przy pierwszym `pnpm install` może pojawić się ostrzeżenie `ERR_PNPM_IGNORED_BUILDS`. Jednorazowy fix:
+`pnpm 11` blokuje domyślnie buildy natywne. Przy pierwszym `pnpm install` może pojawić się ostrzeżenie `ERR_PNPM_IGNORED_BUILDS`. Jednorazowy fix:
 
 ```bash
 pnpm install --config.dangerouslyAllowAllBuilds=true
@@ -229,7 +247,7 @@ pnpm install --config.dangerouslyAllowAllBuilds=true
 pnpm approve-builds        # interaktywnie zaakceptuj: better-sqlite3, esbuild, @biomejs/biome
 ```
 
-Po skompilowaniu `.node` binary (~25s na Apple Silicon), kolejne `pnpm install` już nie wymagają flagi.
+Po skompilowaniu `.node` binary (~25s na Apple Silicon), kolejne `pnpm install` już nie wymagają flagi. To samo dotyczy CI — workflow'y używają `--config.dangerouslyAllowAllBuilds=true`.
 
 ### Audyt determinizmu
 
@@ -259,45 +277,49 @@ Publikacja na npm leci automatycznie z GitHub Actions, **bez `NPM_TOKEN`**.
 
 Pre-req jednorazowy (web UI): konfiguracja Trusted Publishera na npmjs.com pod `Owner=woladi · Repo=sententim · Workflow=release.yml`.
 
-Layout:
+### Layout
 
 ```
 sententim/
 ├── src/
-│   ├── index.ts                · stdio MCP entry
-│   ├── server.ts               · jeden tool zarejestrowany
-│   ├── db.ts                   · JudgmentsDb (PRAGMA query_only=1)
+│   ├── index.ts                · stdio MCP entry + public API exports
+│   ├── server.ts               · MCP server (verify_signature + search_judgments)
+│   ├── db.ts                   · JudgmentsDb (PRAGMA query_only=1, FTS5)
 │   ├── normalize.ts            · displaySignature + normaliseSignature
-│   ├── types.ts                · Judgment, VerifyResult, Manifest
+│   ├── types.ts                · Judgment, VerifyResult, Manifest, JudgmentMatch
 │   ├── cli.ts                  · `sententim info` / `sententim verify`
-│   └── tools/verify-signature.ts
+│   └── tools/
+│       ├── verify-signature.ts · FOUND / NOT_FOUND / AMBIGUOUS
+│       └── search-judgments.ts · FTS5-backed search
 ├── scripts/etl/
 │   ├── parsers/
 │   │   ├── sentencja-typ.ts    · regex outcome classifier
 │   │   ├── podstawa-prawna.ts  · regex legal-basis extractor
-│   │   └── sad-instancja.ts    · court → SR/SO/SA/SN/...
+│   │   ├── sad-instancja.ts    · court → SR/SO/SA/SN/...
+│   │   └── cross-ref.ts        · sygn. akt X regex (prawomocny + uchylony_przez)
 │   ├── sources/
 │   │   ├── saos.ts             · SAOS REST API client
 │   │   └── cjeu.ts             · gated SENTENTIM_ENABLE_CJEU (deferred)
-│   ├── normalize.ts            · raw SAOS → canonical
+│   ├── normalize.ts            · raw SAOS → canonical + cross-ref pass
 │   ├── build-db.ts             · staged JSONL → SQLite + manifest
 │   ├── seed.ts                 · unia 2 queries SAOS
 │   └── verify.ts               · prepublish gate
 ├── data/
-│   ├── schema.sql              · DDL (commit)
+│   ├── schema.sql              · DDL (committed)
 │   ├── judgments.db            · published artefact
 │   └── manifest.json           · published artefact
-├── tests/
+├── tests/                      · 66 vitest tests
 │   ├── normalize.test.ts
 │   ├── parsers.test.ts
+│   ├── cross-ref.test.ts
 │   ├── db.test.ts
-│   └── verify-contract.test.ts
+│   ├── verify-contract.test.ts
+│   └── search-judgments.test.ts
 └── .github/workflows/
-    ├── ci.yml
-    └── release.yml             · changesets → npm
+    ├── ci.yml                  · typecheck · lint · test · build
+    └── release.yml             · changesets → OIDC → npm + Sigstore
 ```
 
 ## License
 
-[MIT](LICENSE) © Adrian Wołczuk.
-Dane SAOS wykorzystywane na podstawie art. 4 ustawy o prawie autorskim (orzeczenia organów państwowych poza zakresem ochrony).
+[MIT](LICENSE) © Adrian Wołczuk. Data-source attribution: [NOTICE](NOTICE).

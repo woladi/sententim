@@ -1,0 +1,48 @@
+sententim
+Copyright 2026 Adrian Wołczuk
+
+This product includes software developed by Adrian Wołczuk
+(https://github.com/woladi/sententim) and licensed under the MIT
+License (see LICENSE).
+
+----------------------------------------------------------------------
+Data sources
+----------------------------------------------------------------------
+
+The bundled ruling database (data/judgments.db) is derived from public
+court records:
+
+  · Polish court judgments (SR, SO, SA, SN) via SAOS — System Analizy
+    Orzeczeń Sądowych, maintained by CeON / ICM University of Warsaw.
+    Polish judicial decisions are excluded from copyright protection
+    under art. 4 of the Polish Act on Copyright and Related Rights
+    (ustawa o prawie autorskim i prawach pokrewnych).
+
+  · CJEU judgments via CELLAR (Publications Office of the European
+    Union), reusable under Commission Decision 2011/833/EU. NOTE: the
+    CJEU pipeline is gated behind the SENTENTIM_ENABLE_CJEU=1
+    environment variable and is not currently exercised by the
+    published corpus (roadmap v0.5).
+
+sententim does NOT redistribute the full text of judgments. Each row
+contains only deterministically-extracted facts (signature, court,
+date, outcome class, legal-basis citations) plus a SHA-256 of the
+source text and a link back to the public source URL.
+
+----------------------------------------------------------------------
+Third-party libraries
+----------------------------------------------------------------------
+
+This package depends on, at runtime:
+
+  · @modelcontextprotocol/sdk          MIT
+  · better-sqlite3                     MIT
+  · zod                                MIT
+
+And, only at build/dev time:
+
+  · @biomejs/biome                     MIT
+  · @changesets/cli                    MIT
+  · tsup, tsx, typescript, vitest      MIT / Apache-2.0
+
+See package.json for exact versions.
