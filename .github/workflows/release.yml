@@ -1,21 +1,34 @@
 name: release
 
+# The release pipeline runs on every push to `main` and decides at runtime
+# what to do:
+#
+#   · if there are pending `.changeset/*.md` files → open / update a
+#     "Version Packages" PR that bumps versions and refreshes CHANGELOG.
+#   · if the PR has just been merged → run `pnpm release`, which calls
+#     `changeset publish` → `npm publish` → npm registry.
+#
+# Authentication to npm is via **Trusted Publishing (OIDC)**. There is
+# NO NPM_TOKEN secret. The GitHub-issued OIDC token is exchanged at
+# publish time for a short-lived, scope-limited npm token, and Sigstore
+# provenance is automatically attached (publishConfig.provenance=true in
+# package.json).
+#
+# Prerequisite (one-off, done in the npm web UI):
+#   npmjs.com → Package → Settings → Trusted Publishers
+#     Add GitHub Actions publisher matching:
+#       owner=woladi · repo=sententim · workflow=release.yml
+#       environment=  (leave empty — no environment gate)
+
 on:
   push:
     branches: [main]
-    paths:
-      - "src/**"
-      - "data/judgments.db"
-      - "data/manifest.json"
-      - "data/schema.sql"
-      - "package.json"
   workflow_dispatch:
 
 permissions:
-  contents: write
-  id-token: write   # required for npm provenance
-  issues: write
-  pull-requests: write
+  contents: write       # changesets/action commits the version bump
+  pull-requests: write  # …and opens the "Version Packages" PR
+  id-token: write       # OIDC token for npm Trusted Publishing + provenance
 
 concurrency:
   group: release-${{ github.ref }}
@@ -33,15 +46,21 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 9
+          version: 11
 
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
+          # registry-url is what makes `npm publish` use OIDC: setup-node
+          # writes the right `.npmrc` so the npm CLI requests an OIDC
+          # token from the actions runner and exchanges it with npm.
           registry-url: "https://registry.npmjs.org"
 
-      - run: pnpm install --frozen-lockfile
+      # pnpm 11 refuses to run native build scripts by default. better-sqlite3
+      # NEEDS its build script to compile the `.node` binding; without it
+      # `pnpm test` / `pnpm etl:verify` would crash at module load.
+      - run: pnpm install --frozen-lockfile --config.dangerouslyAllowAllBuilds=true
 
       - run: pnpm typecheck
       - run: pnpm lint
@@ -53,6 +72,8 @@ jobs:
         uses: changesets/action@v1
         with:
           publish: pnpm release
+          title: "chore(release): version packages"
+          commit: "chore(release): version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # NPM_TOKEN intentionally absent — Trusted Publishing handles auth.

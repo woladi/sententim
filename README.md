@@ -242,6 +242,23 @@ node -e "const D=require('better-sqlite3'); const db=new D('data/judgments.db',{
 curl -s "<zrodlo_url>" | jq -r .textContent | shasum -a 256
 ```
 
+### Release (OIDC Trusted Publishing)
+
+Publikacja na npm leci automatycznie z GitHub Actions, **bez `NPM_TOKEN`**.
+
+1. Dodaj `.changeset/<opis>.md` (lub `pnpm changeset`):
+   ```md
+   ---
+   "sententim": patch | minor | major
+   ---
+   Krótki opis zmiany.
+   ```
+2. `git push origin main` → `release.yml` otwiera (lub aktualizuje) PR **"Version Packages"** który bumpuje `package.json` + dopisuje wpis do `CHANGELOG.md`.
+3. Merge PR → `release.yml` ponownie się odpala. Tym razem nie ma pending changesets, więc `changesets/action` woła `pnpm release` (`= changeset publish` `= npm publish`). npm CLI wykrywa OIDC w runnerze (`id-token: write` + `actions/setup-node` z `registry-url`), wymienia token GitHub na krótkotrwały token publikacji npm i wysyła tarball z **Sigstore provenance** (włączone przez `publishConfig.provenance: true`).
+4. Bez sekretów `NPM_TOKEN`. Bez ręcznego `npm login`. Atestacja widoczna na stronie pakietu w npm.
+
+Pre-req jednorazowy (web UI): konfiguracja Trusted Publishera na npmjs.com pod `Owner=woladi · Repo=sententim · Workflow=release.yml`.
+
 Layout:
 
 ```
