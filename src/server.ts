@@ -4,9 +4,10 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { JudgmentsDb } from "./db.js";
+import { runSearchJudgments, searchJudgmentsTool } from "./tools/search-judgments.js";
 import { runVerifySignature, verifySignatureTool } from "./tools/verify-signature.js";
 
-const PKG_VERSION = "0.1.0";
+const PKG_VERSION = "0.2.0";
 
 export interface CreateServerOptions {
   dbPath?: string;
@@ -21,17 +22,25 @@ export function createServer(opts: CreateServerOptions = {}) {
   );
 
   server.setRequestHandler(ListToolsRequestSchema, () => ({
-    tools: [verifySignatureTool],
+    tools: [verifySignatureTool, searchJudgmentsTool],
   }));
 
   server.setRequestHandler(CallToolRequestSchema, (req) => {
     const name = req.params.name;
     const args = (req.params.arguments ?? {}) as Record<string, unknown>;
-    if (name !== "verify_signature") {
-      throw new Error(`Unknown tool: ${name}`);
+    let payload: unknown;
+    switch (name) {
+      case "verify_signature":
+        // biome-ignore lint/suspicious/noExplicitAny: zod-validated inside runner
+        payload = runVerifySignature(db, args as any);
+        break;
+      case "search_judgments":
+        // biome-ignore lint/suspicious/noExplicitAny: zod-validated inside runner
+        payload = runSearchJudgments(db, args as any);
+        break;
+      default:
+        throw new Error(`Unknown tool: ${name}`);
     }
-    // biome-ignore lint/suspicious/noExplicitAny: zod-validated inside runner
-    const payload = runVerifySignature(db, args as any);
     return {
       content: [{ type: "text", text: JSON.stringify(payload, null, 2) }],
     };

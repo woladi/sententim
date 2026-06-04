@@ -84,9 +84,9 @@ const r = runVerifySignature(db, { sygnatura: "II CSK 750/15" });
 // }
 ```
 
-## Kontrakt narzędzia MCP
+## Kontrakty narzędzi MCP
 
-**Tool**: `verify_signature`
+### Tool: `verify_signature`
 
 ```ts
 input: {
@@ -113,6 +113,28 @@ output: {
 | `NOT_FOUND` | zero trafień — **nie cytuj tej sygnatury** | `[]` |
 | `AMBIGUOUS` | ta sama sygnatura w ≥2 sądach — zwracamy wszystkich kandydatów, **bez wybierania** | `[{...}, {...}, …]` |
 
+### Tool: `search_judgments` *(v0.2)*
+
+Wyszukiwarka FTS5 po sygnaturze, nazwie sądu i podstawie prawnej. Akcento-niewrażliwa, naiwna na polską morfologię (`Warszawa` znajduje `Warszawie` przez stem trimming).
+
+```ts
+input: {
+  query:     string;           // multi-token AND, np. "apelacyjny Warszawa"
+  instancja?: "SR"|"SO"|"SA"|"SN"|"NSA"|"WSA"|"TK"|"TSUE";
+  limit?:    number;           // 1-50, default 10
+}
+
+output: {
+  query: string,
+  instancja: "SR"|"SO"|"SA"|"SN"|"NSA"|"WSA"|"TK"|"TSUE"|"ALL",
+  total_returned: number,
+  matches: Array<JudgmentMatch>,   // ten sam shape co verify_signature
+  disclaimer: string
+}
+```
+
+**Ważne**: search wciąż obowiązuje reguła naczelna. `total_returned: 0` ≠ "wyrok nie istnieje" — to "nie ma w tej bazie". Nie cytuj na podstawie braku trafień.
+
 ## Schemat danych
 
 ```ts
@@ -123,8 +145,8 @@ type Judgment = {
   instancja:       "SR"|"SO"|"SA"|"SN"|"NSA"|"WSA"|"TK"|"TSUE";
   data_orzeczenia: string;                    // ISO YYYY-MM-DD
   sentencja_typ:   "oddala"|"uwzglednia"|"uchyla_przekazuje"|"zmienia"|"umarza"|"inne"|null;
-  prawomocny:      0|1|null;                  // NULL w MVP-1 (v0.2: cross-ref pass)
-  uchylony_przez:  string|null;               // NULL w MVP-1
+  prawomocny:      0|1|null;                  // v0.2: SA/SN/NSA/TK/TSUE → 1 by construction; SR/SO via cross-ref
+  uchylony_przez:  string|null;               // v0.2: backfilled przez cross-ref pass na narrow corpus (rzadko)
   podstawa_prawna: string[];                  // ["art. 45 ukk", "art. 75c pr.bank"]
   zrodlo_url:      string;
   data_pobrania:   string;                    // ISO timestamp
@@ -164,17 +186,19 @@ Każde pole pochodzi z deterministycznej ekstrakcji — pełna lista parserów: 
 
 ## Limity i znane luki
 
-- **`prawomocny` zawsze NULL w MVP-1** — nie można ustalić bez cross-refa z apelacją. Roadmap v0.2.
-- **`uchylony_przez` zawsze NULL w MVP-1** — analogicznie.
-- **`sentencja_typ` `NULL` jeśli żaden z 5 regexów nie trafia** — świadomie zamiast zgadywać `'inne'`. W praktyce ~20-30% wyroków ma `NULL` (najczęściej compound rulings które wymagają mocniejszej heurystyki).
+- **`prawomocny` w v0.2**: SA/SN/NSA/TK/TSUE → `1` z definicji; SR/SO → `1` tylko gdy w korpusie istnieje appellate ze `sentencja_typ=oddala` referujące tę sygnaturę; inaczej `NULL`. Na obecnym wąskim korpusie (1272 rekordów) → 96 by-instance + 19 by-cross-ref = **115 prawomocnych**, 1157 NULL.
+- **`uchylony_przez`** — backfilluje cross-ref pass na podstawie wzorca "sygn. akt X" w textContent appellate'ów `uchyla_przekazuje`. Na narrow corpus daje **0 trafień** (w domenie sankcji KD "uchyla" to zwykle self-reference do `wyroku zaocznego`/`nakazu zapłaty` w tym samym sądzie, nie wyższa instancja). Pasuje do roadmap v0.3 z szerszym korpusem.
+- **`sentencja_typ` `NULL` ~31%** — świadomie zamiast zgadywać `'inne'`. Najczęściej compound rulings ("uchyla w części, w pozostałej oddala") które wymagają mocniejszej heurystyki.
+- **search_judgments**: stem-aware ale nie morfologia — `Warszawa→Warszaw*` łapie "Warszawie/Warszawy", ale rzadkie odmiany mogą umknąć. Wbudowany `unicode61 remove_diacritics=2` (akcento-niewrażliwie).
+- **search nie szuka po pełnym tekście** wyroku — FTS5 indeksuje tylko `(sygnatura, sygnatura_norm, podstawa_prawna, sad)`. Pełen tekst nie ląduje w bazie (sha256 jako audyt). Pytanie typu "RODO" znajdzie tylko gdy "RODO" jest w `podstawa_prawna`.
 - **CJEU / TSUE wyłączone** — kod istnieje pod flagą `SENTENTIM_ENABLE_CJEU=1`, ale integracja z nowym deterministycznym schematem wymaga przeprojektowania (roadmap v0.5).
 - **Daty filtrowane** do zakresu `1990-01-01 ... dzisiaj+1d` (literówki w źródle typu „3013-…" są odrzucane).
 
 ## Roadmap
 
-- **v0.1** — `verify_signature`, sankcja kredytu darmowego, SAOS. *Tu jesteś.*
-- **v0.2** — `search_judgments` (FTS5 po sygnaturze + podstawie prawnej), cross-ref pass dla `prawomocny`/`uchylony_przez`.
-- **v0.3** — Druga domena prawna (rozszerzenie korpusu seedu).
+- **v0.1** — `verify_signature`, sankcja kredytu darmowego, SAOS.
+- **v0.2** — `search_judgments` (FTS5), prawomocny heurystyka + cross-ref pass dla SR/SO. *Tu jesteś.*
+- **v0.3** — Druga domena prawna (rozszerzenie korpusu seedu) + pełniejszy cross-ref pass dla `uchylony_przez`.
 - **v0.4** — Scraper sn.pl dla SN post-2016 (SAOS-owy SN zamrożony na 2016-06-22).
 - **v0.5** — Aktywacja CJEU/TSUE (osobny schema-extension dla ECLI + procedural lang).
 

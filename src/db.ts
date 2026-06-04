@@ -88,6 +88,7 @@ export class JudgmentsDb {
   readonly #findByNormAndSad;
   readonly #findByNormAndData;
   readonly #findByNormAndSadAndData;
+  readonly #ftsSearch;
   readonly #manifestStmt;
   readonly #countStmt;
 
@@ -121,6 +122,21 @@ export class JudgmentsDb {
     );
     this.#findByNormAndSadAndData = this.db.prepare<[string, string, string]>(
       "SELECT * FROM judgments WHERE sygnatura_norm = ? AND sad LIKE ? AND data_orzeczenia = ? LIMIT 50",
+    );
+    // FTS5 search joined back to the canonical row.  We never expose
+    // textContent (it isn't stored), only the structured row.
+    this.#ftsSearch = this.db.prepare<{
+      q: string;
+      instancja: string | null;
+      limit: number;
+      offset: number;
+    }>(
+      `SELECT j.* FROM judgments_fts f
+       JOIN judgments j ON j.id = f.rowid
+       WHERE judgments_fts MATCH :q
+         AND (:instancja IS NULL OR j.instancja = :instancja)
+       ORDER BY rank
+       LIMIT :limit OFFSET :offset`,
     );
 
     this.#manifestStmt = this.db.prepare("SELECT key, value FROM manifest");
@@ -175,7 +191,64 @@ export class JudgmentsDb {
     return rows.map(rowToJudgment);
   }
 
+  /**
+   * FTS5-backed search across (sygnatura, sygnatura_norm, podstawa_prawna,
+   * sad).  Diacritic-insensitive by virtue of the unicode61 tokenizer with
+   * remove_diacritics=2.  Returns ranked judgments matching the query.
+   */
+  search(
+    query: string,
+    opts: { instancja?: Judgment["instancja"]; limit?: number; offset?: number } = {},
+  ): Judgment[] {
+    const fts = sanitiseFtsQuery(query);
+    if (!fts) return [];
+    const rows = this.#ftsSearch.all({
+      q: fts,
+      instancja: opts.instancja ?? null,
+      limit: Math.min(opts.limit ?? 20, 100),
+      offset: Math.max(opts.offset ?? 0, 0),
+    }) as JudgmentRow[];
+    return rows.map(rowToJudgment);
+  }
+
   close(): void {
     this.db.close();
   }
+}
+
+/**
+ * FTS5 query sanitiser.
+ *
+ * Polish nouns inflect heavily, so we never use exact-token matching.
+ * Each input token is expanded to a prefix term (`token*`).  Additionally,
+ * when a token has 5+ characters and ends in a Polish nominative-style
+ * vowel, we ALSO emit the stem (without that vowel) as an OR-prefix so
+ * `Warszawa` finds `Warszawie`, `Krakowa` finds `Krakowski`, and so on.
+ * This is a heuristic, not a morphology engine, but it covers the
+ * majority of city / declension cases without a dictionary dependency.
+ *
+ * Tokens are whitelisted to letters + digits (incl. Polish diacritics)
+ * so nothing in the user's input can hijack FTS5 query syntax.
+ *
+ * Multi-token queries become implicit AND (FTS5 default).
+ */
+function sanitiseFtsQuery(input: string): string {
+  if (!input) return "";
+  const tokens = input
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter((t) => t.length >= 2);
+  if (tokens.length === 0) return "";
+  return tokens.map(expandToken).join(" ");
+}
+
+function expandToken(t: string): string {
+  // Drop a trailing Polish nominative vowel before adding `*` so
+  // `Warszawa` matches `Warszawie`, `apelacyjny` matches `apelacyjna`,
+  // etc.  FTS5 rejects parenthesised OR-groups when mixed with AND
+  // terms, so we commit to the stem instead of OR-ing both forms.
+  if (t.length >= 5 && /[aąeęioóuy]$/iu.test(t)) {
+    return `${t.slice(0, -1)}*`;
+  }
+  return `${t}*`;
 }

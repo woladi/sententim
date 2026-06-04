@@ -15,10 +15,28 @@ import { displaySignature, normaliseSignature, stripLightHtml } from "../../src/
 import type { Instancja, SentencjaTyp } from "../../src/types.js";
 import { openJsonlWriter, readJsonl } from "./lib/jsonl.js";
 import { rawJsonl, stagedJsonl } from "./lib/paths.js";
+import { extractSignatureRefs } from "./parsers/cross-ref.js";
 import { extractPodstawaPrawna } from "./parsers/podstawa-prawna.js";
 import { canonicalSadName, resolveInstancja } from "./parsers/sad-instancja.js";
 import { classifySentencja } from "./parsers/sentencja-typ.js";
 import type { SaosJudgment } from "./sources/saos.js";
+
+/**
+ * Instances whose own ruling is, by virtue of being a court of last
+ * resort in its branch, prawomocny on the day it's issued.
+ *
+ * SR / SO are explicitly NOT in here — even when SO sits as an appellate
+ * panel (Ca / Cz / Ka), we leave its prawomocny status to the cross-ref
+ * pass, because a Skarga Kasacyjna could still upend it.
+ */
+const ALWAYS_PRAWOMOCNY: ReadonlySet<Instancja> = new Set(["SA", "SN", "NSA", "TK", "TSUE"]);
+
+/**
+ * Instances whose decisions, when they `oddala` an appeal or `uchyla` a
+ * lower judgment, deterministically settle the status of the lower row
+ * they referenced.  Everything else is too noisy to act on.
+ */
+const APPELLATE_FOR_CROSSREF: ReadonlySet<Instancja> = new Set(["SO", "SA", "SN", "NSA"]);
 
 const MIN_DATE = "1990-01-01";
 
@@ -48,6 +66,9 @@ export interface NormaliseResult {
   skipped: number;
   unresolvedInstancja: number;
   unresolvedSentencja: number;
+  prawomocnyByInstance: number;
+  prawomocnyByCrossRef: number;
+  uchylonyPrzezSet: number;
 }
 
 /**
@@ -62,11 +83,17 @@ export async function normaliseSaos(opts: NormaliseInputOptions = {}): Promise<N
     rawJsonl("saos", "all"),
   ];
   const out = stagedJsonl("judgments");
-  const writer = openJsonlWriter(out);
 
   const seenSaosIds = new Set<number>();
   const now = new Date().toISOString();
   const todayMax = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  // First pass — project all rows into memory.  We keep textContent in a
+  // parallel map keyed by sygnatura_norm so the cross-ref pass can run
+  // without re-reading the raw JSONLs.  ~1300 records × ~20 KB textContent
+  // ≈ 26 MB; comfortably in budget.
+  const projected: StagedJudgment[] = [];
+  const textByNorm = new Map<string, string>();
 
   let total = 0;
   let skipped = 0;
@@ -75,8 +102,6 @@ export async function normaliseSaos(opts: NormaliseInputOptions = {}): Promise<N
 
   for (const inFile of inputs) {
     for await (const wrapper of readJsonl<SaosJudgment & { data?: SaosJudgment }>(inFile)) {
-      // Tolerate both the single-judgment endpoint wrapper ({links, data})
-      // and the inline shape returned by /search/judgments[items].
       const raw = (wrapper as { data?: SaosJudgment }).data ?? wrapper;
       if (!raw?.id || seenSaosIds.has(raw.id)) {
         skipped++;
@@ -84,24 +109,80 @@ export async function normaliseSaos(opts: NormaliseInputOptions = {}): Promise<N
       }
       seenSaosIds.add(raw.id);
 
-      const projected = projectOne(raw, now);
-      if (!projected) {
+      const row = projectOne(raw, now);
+      if (!row) {
         skipped++;
         continue;
       }
-      if (projected.data_orzeczenia < MIN_DATE || projected.data_orzeczenia > todayMax) {
-        // Guard against malformed dates like "3013-…" in the upstream.
+      if (row.data_orzeczenia < MIN_DATE || row.data_orzeczenia > todayMax) {
         skipped++;
         continue;
       }
-      if (!projected.sentencja_typ) unresolvedSentencja++;
-      writer.write(projected);
+      if (!row.sentencja_typ) unresolvedSentencja++;
+
+      projected.push(row);
+      textByNorm.set(row.sygnatura_norm, stripLightHtml(raw.textContent));
       total++;
     }
   }
 
+  // Cross-reference pass — walk every appellate row, extract references
+  // to a lower judgment from its text body, look them up in the same
+  // corpus, and back-fill `uchylony_przez` / `prawomocny` on the lower
+  // row when the appellate's disposition is unambiguous.
+  const bySygNorm = new Map<string, StagedJudgment>();
+  for (const j of projected) bySygNorm.set(j.sygnatura_norm, j);
+
+  const prawomocnyByInstance = projected.filter((j) => j.prawomocny === 1).length;
+  let prawomocnyByCrossRef = 0;
+  let uchylonyPrzezSet = 0;
+
+  for (const j of projected) {
+    if (!APPELLATE_FOR_CROSSREF.has(j.instancja)) continue;
+    if (!j.sentencja_typ) continue;
+    const text = textByNorm.get(j.sygnatura_norm);
+    if (!text) continue;
+
+    for (const ref of extractSignatureRefs(text)) {
+      const lower = bySygNorm.get(ref.normalised);
+      if (!lower) continue;
+      if (lower.sygnatura_norm === j.sygnatura_norm) continue; // self-ref
+
+      if (j.sentencja_typ === "uchyla_przekazuje") {
+        // Hard signal: the lower judgment was annulled.
+        if (lower.uchylony_przez !== j.sygnatura) {
+          lower.uchylony_przez = j.sygnatura;
+          uchylonyPrzezSet++;
+        }
+        lower.prawomocny = 0;
+      } else if (j.sentencja_typ === "oddala") {
+        // Soft signal: the appeal was dismissed → the lower stands.
+        // Do not overwrite an explicit annulment.
+        if (lower.prawomocny == null) {
+          lower.prawomocny = 1;
+          prawomocnyByCrossRef++;
+        }
+      }
+      // `zmienia` / `umarza` are deliberately ignored — they do not
+      // settle the lower's prawomocny status in a way we can rely on.
+    }
+  }
+
+  // Final write.
+  const writer = openJsonlWriter(out);
+  for (const row of projected) writer.write(row);
   await writer.close();
-  return { outFile: out, total, skipped, unresolvedInstancja, unresolvedSentencja };
+
+  return {
+    outFile: out,
+    total,
+    skipped,
+    unresolvedInstancja,
+    unresolvedSentencja,
+    prawomocnyByInstance,
+    prawomocnyByCrossRef,
+    uchylonyPrzezSet,
+  };
 }
 
 function projectOne(raw: SaosJudgment, dataPobrania: string): StagedJudgment | null {
@@ -144,8 +225,10 @@ function projectOne(raw: SaosJudgment, dataPobrania: string): StagedJudgment | n
     instancja,
     data_orzeczenia: raw.judgmentDate,
     sentencja_typ,
-    prawomocny: null,        // MVP-1: deferred to v0.2 cross-ref pass
-    uchylony_przez: null,    // MVP-1: deferred to v0.2 cross-ref pass
+    // Courts of last resort are prawomocne by construction.  Everything
+    // else starts NULL and may be set during the cross-ref pass.
+    prawomocny: ALWAYS_PRAWOMOCNY.has(instancja) ? 1 : null,
+    uchylony_przez: null,
     podstawa_prawna,
     zrodlo_url: sourceUrl,
     data_pobrania: dataPobrania,
@@ -158,6 +241,9 @@ export async function summariseNormalisation(res: NormaliseResult): Promise<stri
     `Normalisation done · ${res.total} kept · ${res.skipped} skipped`,
     `  unresolved sentencja_typ: ${res.unresolvedSentencja}`,
     `  unresolved instancja:     ${res.unresolvedInstancja}`,
+    `  prawomocny by instance:   ${res.prawomocnyByInstance}`,
+    `  prawomocny by cross-ref:  ${res.prawomocnyByCrossRef}`,
+    `  uchylony_przez set:       ${res.uchylonyPrzezSet}`,
     `  output: ${res.outFile}`,
     "",
   ].join("\n");

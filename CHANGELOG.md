@@ -4,6 +4,22 @@ All notable changes to this project will be documented here. Format follows [Kee
 
 ## [Unreleased]
 
+## [0.2.0]
+
+### Added
+- **`search_judgments` MCP tool** — FTS5-backed search over `(sygnatura, sygnatura_norm, podstawa_prawna, sad)` with diacritic-insensitive `unicode61 remove_diacritics=2` tokenizer.
+- **Polish-aware stem prefix matching** — tokens ≥5 chars ending in a Polish nominative vowel are trimmed before the `*` prefix so `Warszawa` finds `Warszawie`, `apelacyjny` finds `apelacyjna`, etc.
+- **`prawomocny` heuristic** — courts of last resort (SA, SN, NSA, TK, TSUE) are marked `prawomocny=1` deterministically at projection time (96 records in current corpus).
+- **Cross-reference pass** in `normalize.ts` — extracts `sygn. akt X` signatures from appellate textContent; back-fills `prawomocny=1` for lower-court rows whose appeal was `oddalono` and `uchylony_przez=<sygnatura>` + `prawomocny=0` when appellate `uchyla_przekazuje`. On v0.2 corpus: +19 prawomocny attributions, 0 uchylony_przez (narrow domain, see README limits).
+- `scripts/etl/parsers/cross-ref.ts` + golden tests.
+- 7 new cross-ref tests, 6 new search-judgments tests (66 total, all green).
+
+### Changed
+- `package.json` version 0.1.0 → 0.2.0.
+- `src/server.ts` registers two tools: `verify_signature` + `search_judgments`.
+
+## [0.1.0]
+
 ### Pivot — MVP-1 scope
 
 The initial scaffold positioned sententim as a five-tool AI-grounding ecosystem for SN + CJEU with LLM-generated summaries. This pivot strips it down to a single deterministic tool with no LLM in the pipeline, on a narrower-but-precise corpus.
